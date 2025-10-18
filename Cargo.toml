@@ -1,0 +1,8 @@
+[package]
+name = "ets"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+generational-arena = "0.2.9"
+paste = "1.0.15"
