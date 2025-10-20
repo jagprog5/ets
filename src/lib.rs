@@ -3,6 +3,48 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
+/// select type erased arena at runtime
+// instead of typeid, which is not stable between rust version. e.g. serialization?
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ArenaID(pub usize);
+
+// --------------------------------------------------------------------
+// Type-erased arena trait
+// --------------------------------------------------------------------
+pub trait ErasedArena {
+    fn len(&self) -> usize;
+    fn get(&self, idx: generational_arena::Index) -> Option<&dyn std::any::Any>;
+    fn get_mut(&mut self, idx: generational_arena::Index) -> Option<&mut dyn std::any::Any>;
+    fn iter(&self) -> Box<dyn Iterator<Item = &dyn std::any::Any> + '_>;
+    fn iter_mut(&mut self) -> Box<dyn Iterator<Item = &mut dyn std::any::Any> + '_>;
+}
+
+// Blanket impl for all typed arenas
+impl<T: 'static> ErasedArena for generational_arena::Arena<T> {
+    fn len(&self) -> usize {
+        generational_arena::Arena::len(self)
+    }
+
+    fn get(&self, idx: generational_arena::Index) -> Option<&dyn std::any::Any> {
+        self.get(idx).map(|e| e as &dyn std::any::Any)
+    }
+
+    fn get_mut(&mut self, idx: generational_arena::Index) -> Option<&mut dyn std::any::Any> {
+        self.get_mut(idx).map(|e| e as &mut dyn std::any::Any)
+    }
+
+    fn iter(&self) -> Box<dyn Iterator<Item = &dyn std::any::Any> + '_> {
+        Box::new(self.iter().map(|(_idx, e)| e as &dyn std::any::Any))
+    }
+
+    fn iter_mut(&mut self) -> Box<dyn Iterator<Item = &mut dyn std::any::Any> + '_> {
+        Box::new(self.iter_mut().map(|(_idx, e)| e as &mut dyn std::any::Any))
+    }
+}
+
+// --------------------------------------------------------------------
+// World macro
+// --------------------------------------------------------------------
 #[macro_export]
 macro_rules! world {
     // https://stackoverflow.com/a/37754096/15534181
@@ -16,7 +58,7 @@ macro_rules! world {
                 where
                     F: FnMut(&dyn $trait_name)
                 {
-                    world!(@use_entity_tuple $trait_name $entity_tuple self handler);
+                    $crate::world!(@use_entity_tuple $trait_name $entity_tuple self handler);
                 }
 
                 #[allow(unused)]
@@ -24,7 +66,7 @@ macro_rules! world {
                 where
                     F: FnMut(&mut dyn $trait_name)
                 {
-                    world!(@use_entity_tuple_mut $trait_name $entity_tuple self handler);
+                    $crate::world!(@use_entity_tuple_mut $trait_name $entity_tuple self handler);
                 }
             )*
         }
@@ -85,20 +127,15 @@ $(
     // no-op for types not implementing the trait
     impl<T> [<VisitIf $trait_name>]<T> for () {
         default fn visit_if_applicable<F>(_arena: &generational_arena::Arena<T>, _handler: F)
-        where
-            F: FnMut(&dyn $trait_name),
-        {}
+        where F: FnMut(&dyn $trait_name) {}
 
         default fn visit_if_applicable_mut<F>(_arena: &mut generational_arena::Arena<T>, _handler: F)
-        where
-            F: FnMut(&mut dyn $trait_name),
-        {}
+        where F: FnMut(&mut dyn $trait_name) {}
     }
 
     impl<T: $trait_name> [<VisitIf $trait_name>]<T> for () {
         fn visit_if_applicable<F>(arena: &generational_arena::Arena<T>, mut handler: F)
-        where
-            F: FnMut(&dyn $trait_name),
+        where F: FnMut(&dyn $trait_name)
         {
             for (_idx, entity) in arena.iter() {
                 handler(entity as &dyn $trait_name);
@@ -106,8 +143,7 @@ $(
         }
 
         fn visit_if_applicable_mut<F>(arena: &mut generational_arena::Arena<T>, mut handler: F)
-        where
-            F: FnMut(&mut dyn $trait_name),
+        where F: FnMut(&mut dyn $trait_name)
         {
             for (_idx, entity) in arena.iter_mut() {
                 handler(entity as &mut dyn $trait_name);
@@ -119,7 +155,60 @@ $(
 impl $struct_name {
     $crate::world!(@pass_entity_tuple $($trait_name),* @ ($($entity),*));
 
+    #[allow(unused)]
+    pub fn arena<T: 'static>(&self) -> &generational_arena::Arena<T> {
+        $(
+            if std::any::TypeId::of::<T>() == std::any::TypeId::of::<$entity>() {
+                let ptr = &self.[<$entity:snake>] as *const generational_arena::Arena<$entity>;
+                return unsafe { &*(ptr as *const generational_arena::Arena<T>) };
+            }
+        )*
+        panic!("No arena for type {}", std::any::type_name::<T>());
+    }
 
+    #[allow(unused)]
+    pub fn arena_mut<T: 'static>(&mut self) -> &mut generational_arena::Arena<T> {
+        $(
+            if std::any::TypeId::of::<T>() == std::any::TypeId::of::<$entity>() {
+                let ptr = &mut self.[<$entity:snake>] as *mut generational_arena::Arena<$entity>;
+                return unsafe { &mut *(ptr as *mut generational_arena::Arena<T>) };
+            }
+        )*
+        panic!("No arena for type {}", std::any::type_name::<T>());
+    }
+
+    pub fn arena_id<T: 'static>() -> crate::ArenaID {
+        use std::any::TypeId;
+        let t = TypeId::of::<T>();
+        let mut i = 0usize;
+        $(
+            if t == TypeId::of::<$entity>() {
+                return crate::ArenaID(i);
+            }
+            i += 1;
+        )*
+        panic!("Type not registered in world! macro");
+    }
+
+    #[allow(unused)]
+    pub fn arena_erased(&self, id: crate::ArenaID) -> &dyn crate::ErasedArena {
+        match id.0 {
+            $(
+                i if i == Self::arena_id::<$entity>().0 => &self.[<$entity:snake>] as &dyn crate::ErasedArena,
+            )*
+            _ => panic!("No arena for type id {}", id.0),
+        }
+    }
+
+    #[allow(unused)]
+    pub fn arena_erased_mut(&mut self, id: crate::ArenaID) -> &mut dyn crate::ErasedArena {
+        match id.0 {
+            $(
+                i if i == Self::arena_id::<$entity>().0 => &mut self.[<$entity:snake>] as &mut dyn crate::ErasedArena,
+            )*
+            _ => panic!("No arena for type id {}", id.0),
+        }
+    }
 }
 
         }
@@ -174,8 +263,22 @@ mod tests {
     fn test_visit_traits() {
         let mut world = MyWorld::default();
 
+        // directly access member
         world.player.insert(Player { id: 1 });
-        world.enemy.insert(Enemy { hp: 10 });
+
+        // compile time type accessor
+        world.arena_mut::<Enemy>().insert(Enemy { hp: 10 });
+
+        // run time type accessor. unique id is a tuple (arena_id, index_in_arena)
+        // manage it however you decide
+        let arena_id = MyWorld::arena_id::<Player>();
+        let arena = world.arena_erased(arena_id);
+        for entity in arena.iter() {
+            let player = entity.downcast_ref::<Player>().unwrap();
+            println!("Got player via erased arena: {:?}", player);
+        }
+
+        // visit all arena with types that implement trait
         world.visit_test_trait(|e| e.do_something());
         world.visit_mut_second_test_trait(|e| e.do_something_else());
     }
