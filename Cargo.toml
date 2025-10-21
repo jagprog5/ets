@@ -4,5 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-generational-arena = "0.2.9"
 paste = "1.0.15"
+
+# slot map has been pretty stable for a while (2 years). this adds one small
+# commit - direct slice access to keys or values. handy for parallel iteration
+# over contiguous data. https://github.com/orlp/slotmap/pull/134
+slotmap = { git = "https://github.com/Swiiz/slotmap.git", rev = "425ad56" }
+
+[dependencies.rayon]
+version = "1.11"
+optional = true
+
+[features]
+# Enable with: --features rayon
+# Parallel visitors
+default = ["rayon"]
+rayon = ["dep:rayon"]

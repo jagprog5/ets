@@ -1,6 +1,10 @@
 ## Entity Trait System
 
-This is a proof of concept (aka very unpolished) entity trait system which _could_ supersede [archetypal](https://csherratt.github.io/blog/posts/specs-and-legion/) entity component systems. It's a bold claim and I'd love for someone to point out the issues and tradeoffs!
+This is a proof of concept (aka very unpolished) entity trait system which
+_could_ compete with
+[archetypal](https://csherratt.github.io/blog/posts/specs-and-legion/) entity
+component systems. It's a bold claim and I'd love for someone to point out the
+issues and tradeoffs!
 
 ```bash
 $ clear; cargo test -- --nocapture
