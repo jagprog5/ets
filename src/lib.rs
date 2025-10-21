@@ -3,6 +3,21 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
+#[allow(unused)]
+trait IsType<T> {
+    const VALUE: bool;
+}
+
+// default: false
+impl<A, B> IsType<B> for A {
+    default const VALUE: bool = false;
+}
+
+// specialize for equal types
+impl<T> IsType<T> for T {
+    const VALUE: bool = true;
+}
+
 /// select type erased arena at runtime
 // instead of typeid, which is not stable between rust version. e.g.
 // serialization? this id is determined by the order stated by the user when
@@ -19,6 +34,7 @@ pub trait ErasedArena {
 }
 
 // Blanket impl for all typed arenas
+// 'static required for Any
 impl<T: 'static> ErasedArena for slotmap::DenseSlotMap::<slotmap::DefaultKey, T> {
     fn get_any(&self, key: slotmap::DefaultKey) -> Option<&dyn std::any::Any> {
         self.get(key).map(|e| e as &dyn std::any::Any)
@@ -60,8 +76,10 @@ macro_rules! world {
                 #[allow(unused)]
                 pub fn [<par_visit_ $trait_name:snake>]<F>(&self, handler: F)
                 where
-                    F: Fn(&dyn $trait_name) + Send + Sync + 'static
+                    F: Fn(&dyn $trait_name) + Send + Sync
                 {
+                    use rayon::prelude::*;
+                    use rayon::scope;
                     $crate::world!(@use_entity_tuple_par $trait_name $entity_tuple self handler);
                 }
 
@@ -69,7 +87,7 @@ macro_rules! world {
                 #[allow(unused)]
                 pub fn [<par_visit_mut_ $trait_name:snake>]<F>(&mut self, handler: F)
                 where
-                    F: Fn(&mut dyn $trait_name) + Send + Sync + 'static
+                    F: Fn(&mut dyn $trait_name) + Send + Sync
                 {
                     $crate::world!(@use_entity_tuple_par_mut $trait_name $entity_tuple self handler);
                 }
@@ -101,25 +119,37 @@ macro_rules! world {
 
     (@use_entity_tuple_par $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         paste::paste! {
-            $(
-                <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable(
-                    &$self_ident.[<$entity:snake>],
-                    &$handler_ident,
-                );
-            )*
+            scope(|s| {
+                $(
+                    let arena_ref = &$self_ident.[<$entity:snake>];
+                    s.spawn(|_| {
+                        <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable(
+                            arena_ref,
+                            &$handler_ident,
+                        );
+                    });
+                )*
+            });
         }
     };
 
     (@use_entity_tuple_par_mut $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
-        paste::paste! {
+    paste::paste! {
+        use rayon::scope;
+        scope(|s| {
             $(
-                <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable_mut(
-                    &mut $self_ident.[<$entity:snake>],
-                    &$handler_ident,
-                );
+                let arena_ref = &mut $self_ident.[<$entity:snake>];
+                let handler_ref = &$handler_ident;
+                s.spawn(|_| {
+                    <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable_mut(
+                        arena_ref,
+                        handler_ref,
+                    );
+                });
             )*
-        }
-    };
+        });
+    }
+};
 
     // main macro form: define struct + traits + impl
     (
@@ -187,29 +217,29 @@ $(
     trait [<ParVisitIf $trait_name>]<T> {
         fn par_visit_if_applicable<F>(arena: &slotmap::DenseSlotMap::<slotmap::DefaultKey, T>, handler: &F)
         where
-            F: Fn(&dyn $trait_name) + Send + Sync + 'static;
+            F: Fn(&dyn $trait_name) + Send + Sync;
 
         fn par_visit_if_applicable_mut<F>(arena: &mut slotmap::DenseSlotMap::<slotmap::DefaultKey, T>, handler: &F)
         where
-            F: Fn(&mut dyn $trait_name) + Send + Sync + 'static;
+            F: Fn(&mut dyn $trait_name) + Send + Sync;
     }
 
     #[cfg(feature = "rayon")]
     impl<T> [<ParVisitIf $trait_name>]<T> for () {
         default fn par_visit_if_applicable<F>(_arena: &slotmap::DenseSlotMap::<slotmap::DefaultKey, T>, _handler: &F)
-        where F: Fn(&dyn $trait_name) + Send + Sync + 'static {}
+        where F: Fn(&dyn $trait_name) + Send + Sync {}
 
         default fn par_visit_if_applicable_mut<F>(_arena: &mut slotmap::DenseSlotMap::<slotmap::DefaultKey, T>, _handler: &F)
-        where F: Fn(&mut dyn $trait_name) + Send + Sync + 'static {}
+        where F: Fn(&mut dyn $trait_name) + Send + Sync {}
     }
 
     #[cfg(feature = "rayon")]
     impl<T> [<ParVisitIf $trait_name>]<T> for ()
     where
-        T: $trait_name + Send + Sync + 'static,
+        T: $trait_name + Send + Sync,
     {
         fn par_visit_if_applicable<F>(arena: &slotmap::DenseSlotMap::<slotmap::DefaultKey, T>, handler: &F)
-        where F: Fn(&dyn $trait_name) + Send + Sync + 'static
+        where F: Fn(&dyn $trait_name) + Send + Sync
         {
             use rayon::iter::IntoParallelRefIterator;
             use rayon::iter::ParallelIterator;
@@ -221,7 +251,7 @@ $(
         }
 
         fn par_visit_if_applicable_mut<F>(arena: &mut slotmap::DenseSlotMap::<slotmap::DefaultKey, T>, handler: &F)
-        where F: Fn(&mut dyn $trait_name) + Send + Sync + 'static
+        where F: Fn(&mut dyn $trait_name) + Send + Sync
         {
             use rayon::iter::IntoParallelRefMutIterator;
             use rayon::iter::ParallelIterator;
@@ -237,9 +267,9 @@ impl $struct_name {
     $crate::world!(@pass_entity_tuple $($trait_name),* @ ($($entity),*));
 
     #[allow(unused)]
-    pub fn arena<T: 'static>(&self) -> &slotmap::DenseSlotMap::<slotmap::DefaultKey, T> {
+    pub fn arena<T>(&self) -> &slotmap::DenseSlotMap::<slotmap::DefaultKey, T> {
         $(
-            if std::any::TypeId::of::<T>() == std::any::TypeId::of::<$entity>() {
+            if <T as crate::IsType<$entity>>::VALUE {
                 let ptr = &self.[<$entity:snake>] as *const slotmap::DenseSlotMap::<slotmap::DefaultKey, $entity>;
                 return unsafe { &*(ptr as *const slotmap::DenseSlotMap::<slotmap::DefaultKey, T>) };
             }
@@ -248,9 +278,9 @@ impl $struct_name {
     }
 
     #[allow(unused)]
-    pub fn arena_mut<T: 'static>(&mut self) -> &mut slotmap::DenseSlotMap::<slotmap::DefaultKey, T> {
+    pub fn arena_mut<T>(&mut self) -> &mut slotmap::DenseSlotMap::<slotmap::DefaultKey, T> {
         $(
-            if std::any::TypeId::of::<T>() == std::any::TypeId::of::<$entity>() {
+            if <T as crate::IsType<$entity>>::VALUE {
                 let ptr = &mut self.[<$entity:snake>] as *mut slotmap::DenseSlotMap::<slotmap::DefaultKey, $entity>;
                 return unsafe { &mut *(ptr as *mut slotmap::DenseSlotMap::<slotmap::DefaultKey, T>) };
             }
@@ -258,12 +288,10 @@ impl $struct_name {
         panic!("No arena for type {}", std::any::type_name::<T>());
     }
 
-    pub fn arena_id<T: 'static>() -> crate::ArenaID {
-        use std::any::TypeId;
-        let t = TypeId::of::<T>();
+    pub fn arena_id<T>() -> crate::ArenaID {
         let mut i = 0usize;
         $(
-            if t == TypeId::of::<$entity>() {
+            if <T as crate::IsType<$entity>>::VALUE {
                 return crate::ArenaID(i);
             }
             i += 1;
@@ -331,6 +359,9 @@ mod tests {
         #[cfg(not(feature = "rayon"))]
         world.visit_test_trait(|e| e.do_something());
 
+        #[cfg(feature = "rayon")]
+        world.par_visit_mut_second_test_trait(|e| e.do_something_else());
+        #[cfg(not(feature = "rayon"))]
         world.visit_mut_second_test_trait(|e| e.do_something_else());
 
         // runtime type accessor. unique id is tuple (arena_id, arena_key).
