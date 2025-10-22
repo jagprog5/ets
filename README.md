@@ -1,19 +1,45 @@
 ## Entity Trait System
 
-[Video](https://youtu.be/AezHJdwDfW0)
+Entity trait system (ETS) is an alternative to entity component system
+architectures.
 
-This is a proof of concept (aka very unpolished) entity trait system which
-_could_ compete with
-[archetypal](https://csherratt.github.io/blog/posts/specs-and-legion/) entity
-component systems. I'd love for people to point out the issues and tradeoffs!
+Here is a [video](https://youtu.be/AezHJdwDfW0) summary.
 
-```bash
-$ clear; cargo test -- --nocapture
+Optional features:
+
+ - [serde](https://crates.io/crates/serde) support
+ - [rayon](https://crates.io/crates/rayon) support
+
+Requires the nightly compiler and
+[specialization](https://std-dev-guide.rust-lang.org/policy/specialization.html)
+feature - it's only used in a sound way.
+
+## Example
+
+```rs
+// declare world, entities, and traits which the entities could have
+world!(MyWorld, Enemy, Player; TestTrait, SecondTestTrait);
+
+let mut world = MyWorld::default();
+// directly access arena member
+let player_id = world.player.insert(Player { id: 1 });
+// compile time type accessor of arena member
+world.arena_mut::<Enemy>().insert(Enemy { hp: 10 });
+
+// visit all arena with types that implement trait - bound at compile time
+#[cfg(feature = "rayon")]
+world.par_visit_test_trait(|e| e.do_something());
+#[cfg(not(feature = "rayon"))]
+world.visit_test_trait(|e| e.do_something());
+
+// runtime type API - access object without knowing the type beforehand
+let arena_id = MyWorld::arena_id::<Player>();
+let arena = world.arena_erased(arena_id);
+// unwrap: I know that this is a player and that the reference is valid
+let player = arena
+    .get_any(player_id)
+    .unwrap()
+    .downcast_ref::<Player>()
+    .unwrap();
+player.do_something();
 ```
-
-Requires the rust nightly compiler due to the basic but necessary use of the
-[specialization](https://doc.rust-lang.org/beta/unstable-book/language-features/specialization.html)
-feature. I'd love to get rid of this requirement, but since rust doesn't have
-C++ style SFINAE I don't see another way.
-
-Help wanted! Feel free to create PRs.

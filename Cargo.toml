@@ -11,12 +11,29 @@ paste = "1.0.15"
 # over contiguous data. https://github.com/orlp/slotmap/pull/134
 slotmap = { git = "https://github.com/Swiiz/slotmap.git", rev = "425ad56" }
 
+# needed for some random serde implementation detail
+once_cell = { version = "1.18", optional = true }
+
 [dependencies.rayon]
 version = "1.11"
 optional = true
 
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+optional = true
+
+[dev-dependencies]
+bincode = { version = "2.0", features = ["serde"] }
+serde_json = "1.0"
+
 [features]
+
 # Enable with: --features rayon
 # Parallel visitors
-default = ["rayon"]
 rayon = ["dep:rayon"]
+
+# Enable with: --features serde
+# Serialization support
+serde = ["dep:serde", "dep:once_cell", "slotmap/serde"]
+default = []

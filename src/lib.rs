@@ -1,5 +1,6 @@
 // specialization feature is incomplete, but is being used here in a very
-// limited but required capacity
+// limited but required capacity. it is only used to check if a type implements
+// a trait - there is no overlapping impl weirdness that is relied on
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
@@ -18,24 +19,98 @@ impl<T> IsType<T> for T {
     const VALUE: bool = true;
 }
 
-/// select type erased arena at runtime
-// instead of typeid, which is not stable between rust version. e.g.
-// serialization? this id is determined by the order stated by the user when
-// creating the world
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ArenaID(pub usize);
+// conditional serde if specific type is also serde
+#[cfg(feature = "serde")]
+pub trait SerdeArena<'de> {
+    // member serialize into a SerializeStruct (called from world Serialize impl)
+    fn serialize_arena<S>(&self, field_name: &'static str, state: &mut S) -> Result<(), S::Error>
+    where
+        S: serde::ser::SerializeStruct;
 
-// --------------------------------------------------------------------
-// Type-erased arena trait
-// --------------------------------------------------------------------
+    // member deserialize from map access (JSON, etc.)
+    fn deserialize_arena<M>(map: &mut M) -> Result<Self, M::Error>
+    where
+        M: serde::de::MapAccess<'de>,
+        Self: Sized;
+
+    // sequence deserialize (e.g. bincode)
+    fn from_seq<V>(seq: &mut V, field_name: &str) -> Result<Self, V::Error>
+    where
+        V: serde::de::SeqAccess<'de>,
+        Self: Sized;
+
+    const ACTIVE: bool; // whether this arena participates in serde
+}
+
+// default: type does NOT implement serde => do nothing
+#[cfg(feature = "serde")]
+impl<'de, T> SerdeArena<'de> for slotmap::DenseSlotMap<slotmap::DefaultKey, T> {
+    default fn serialize_arena<S>(
+        &self,
+        _field_name: &'static str,
+        _state: &mut S,
+    ) -> Result<(), S::Error>
+    where
+        S: serde::ser::SerializeStruct,
+    {
+        Ok(())
+    }
+
+    default fn deserialize_arena<M>(_map: &mut M) -> Result<Self, M::Error>
+    where
+        M: serde::de::MapAccess<'de>,
+    {
+        Ok(slotmap::DenseSlotMap::new())
+    }
+
+    default fn from_seq<V>(_seq: &mut V, _field_name: &str) -> Result<Self, V::Error>
+    where
+        V: serde::de::SeqAccess<'de>,
+    {
+        Ok(slotmap::DenseSlotMap::new())
+    }
+
+    default const ACTIVE: bool = false;
+}
+
+// specialized: type implements serde Serialize + Deserialize
+#[cfg(feature = "serde")]
+impl<'de, T> SerdeArena<'de> for slotmap::DenseSlotMap<slotmap::DefaultKey, T>
+where
+    T: serde::Serialize + serde::Deserialize<'de>,
+{
+    fn serialize_arena<S>(&self, field_name: &'static str, state: &mut S) -> Result<(), S::Error>
+    where
+        S: serde::ser::SerializeStruct,
+    {
+        state.serialize_field(field_name, self)
+    }
+
+    fn deserialize_arena<M>(map: &mut M) -> Result<Self, M::Error>
+    where
+        M: serde::de::MapAccess<'de>,
+    {
+        map.next_value()
+    }
+
+    fn from_seq<V>(seq: &mut V, field_name: &str) -> Result<Self, V::Error>
+    where
+        V: serde::de::SeqAccess<'de>,
+    {
+        seq.next_element()?
+            .ok_or_else(|| serde::de::Error::custom(format!("Missing element for {}", field_name)))
+    }
+
+    const ACTIVE: bool = true;
+}
+
+// type erased view to arena of some type
 pub trait ErasedArena {
     fn get_any(&self, key: slotmap::DefaultKey) -> Option<&dyn std::any::Any>;
     fn get_any_mut(&mut self, key: slotmap::DefaultKey) -> Option<&mut dyn std::any::Any>;
 }
 
-// Blanket impl for all typed arenas
-// 'static required for Any
-impl<T: 'static> ErasedArena for slotmap::DenseSlotMap::<slotmap::DefaultKey, T> {
+impl<T: 'static> ErasedArena for slotmap::DenseSlotMap<slotmap::DefaultKey, T> {
     fn get_any(&self, key: slotmap::DefaultKey) -> Option<&dyn std::any::Any> {
         self.get(key).map(|e| e as &dyn std::any::Any)
     }
@@ -45,9 +120,6 @@ impl<T: 'static> ErasedArena for slotmap::DenseSlotMap::<slotmap::DefaultKey, T>
     }
 }
 
-// --------------------------------------------------------------------
-// World macro
-// --------------------------------------------------------------------
 #[macro_export]
 macro_rules! world {
     // https://stackoverflow.com/a/37754096/15534181
@@ -129,27 +201,28 @@ macro_rules! world {
                         );
                     });
                 )*
+
             });
         }
     };
 
     (@use_entity_tuple_par_mut $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
-    paste::paste! {
-        use rayon::scope;
-        scope(|s| {
-            $(
-                let arena_ref = &mut $self_ident.[<$entity:snake>];
-                let handler_ref = &$handler_ident;
-                s.spawn(|_| {
-                    <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable_mut(
-                        arena_ref,
-                        handler_ref,
-                    );
-                });
-            )*
-        });
-    }
-};
+        paste::paste! {
+            use rayon::scope;
+            scope(|s| {
+                $(
+                    let arena_ref = &mut $self_ident.[<$entity:snake>];
+                    let handler_ref = &$handler_ident;
+                    s.spawn(|_| {
+                        <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable_mut(
+                            arena_ref,
+                            handler_ref,
+                        );
+                    });
+                )*
+            });
+        }
+    };
 
     // main macro form: define struct + traits + impl
     (
@@ -162,7 +235,52 @@ macro_rules! world {
     ) => {
         paste::paste! {
 
-#[derive(Default)]
+/// select type erased arena at runtime
+// instead of typeid, which is not stable between rust version. e.g.
+// serialization? this id is determined by the order stated by the user when
+// creating the world
+//
+// this is declared per world for safety - if serde is enabled and the entity
+// order changes, it still goes to the correct entity
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct [<$struct_name ArenaID>](usize);
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for [<$struct_name ArenaID>] {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = match self.0 {
+            $(
+                i if i == $struct_name::arena_id::<$entity>().0 => stringify!($entity),
+            )*
+            // impossible! could be a panic here instead
+            _ => return Err(serde::ser::Error::custom(format!("Unknown ArenaID {}", self.0))),
+        };
+        serializer.serialize_str(s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for [<$struct_name ArenaID>] {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let id = match s.as_str() {
+            $(
+                stringify!($entity) => $struct_name::arena_id::<$entity>().0,
+            )*
+            // possible! suppose a different world loads it in, and there isn't that type.
+            _ => return Err(serde::de::Error::custom(format!("Unknown ArenaID string {}", s))),
+        };
+        Ok([<$struct_name ArenaID>](id))
+    }
+}
+
+#[derive(Default, Debug)]
 #[allow(private_interfaces)] // member is pub even if underlying type isn't
 pub struct $struct_name {
     $(
@@ -288,11 +406,12 @@ impl $struct_name {
         panic!("No arena for type {}", std::any::type_name::<T>());
     }
 
-    pub fn arena_id<T>() -> crate::ArenaID {
+
+    pub fn arena_id<T>() -> [<$struct_name ArenaID>] {
         let mut i = 0usize;
         $(
             if <T as crate::IsType<$entity>>::VALUE {
-                return crate::ArenaID(i);
+                return [<$struct_name ArenaID>](i);
             }
             i += 1;
         )*
@@ -300,7 +419,7 @@ impl $struct_name {
     }
 
     #[allow(unused)]
-    pub fn arena_erased(&self, id: crate::ArenaID) -> &dyn crate::ErasedArena {
+    pub fn arena_erased(&self, id: [<$struct_name ArenaID>]) -> &dyn crate::ErasedArena {
         match id.0 {
             $(
                 i if i == Self::arena_id::<$entity>().0 => &self.[<$entity:snake>] as &dyn crate::ErasedArena,
@@ -310,7 +429,7 @@ impl $struct_name {
     }
 
     #[allow(unused)]
-    pub fn arena_erased_mut(&mut self, id: crate::ArenaID) -> &mut dyn crate::ErasedArena {
+    pub fn arena_erased_mut(&mut self, id: [<$struct_name ArenaID>]) -> &mut dyn crate::ErasedArena {
         match id.0 {
             $(
                 i if i == Self::arena_id::<$entity>().0 => &mut self.[<$entity:snake>] as &mut dyn crate::ErasedArena,
@@ -319,6 +438,120 @@ impl $struct_name {
         }
     }
 }
+
+#[cfg(feature = "serde")]
+impl serde::ser::Serialize for $struct_name {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        use crate::SerdeArena;
+        use serde::ser::SerializeStruct;
+
+        let field_count = 0 $( + if <slotmap::DenseSlotMap<slotmap::DefaultKey, $entity> as SerdeArena<'static>>::ACTIVE { 1 } else { 0 } )*;
+        let mut state = serializer.serialize_struct(
+            stringify!($struct_name),
+            field_count
+        )?;
+        $(
+            self.[<$entity:snake>].serialize_arena(stringify!($entity), &mut state)?;
+        )*
+        state.end()
+    }
+}
+
+// mut be 'static, and can't do this at compile time :(
+#[cfg(feature = "serde")]
+static [<$struct_name:upper _DESERIALIZE_FIELDS>]: once_cell::sync::Lazy<Vec<&'static str>> =
+    once_cell::sync::Lazy::new(|| {
+        vec![
+            $(
+                if <slotmap::DenseSlotMap<slotmap::DefaultKey, $entity> as crate::SerdeArena<'static>>::ACTIVE {
+                    Some(stringify!($entity))
+                } else {
+                    None
+                }
+            ),*
+        ]
+        .into_iter()
+        .flatten() // converts Option<&str> -> only keep Some
+        .collect()
+    });
+
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for $struct_name {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use crate::SerdeArena;
+        use serde::de::{MapAccess, SeqAccess, Visitor, Error};
+        use std::fmt;
+
+        struct WorldVisitor;
+
+        impl<'de> Visitor<'de> for WorldVisitor {
+            type Value = $struct_name;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "struct {}", stringify!($struct_name))
+            }
+
+            // JSON-style: map fields
+            fn visit_map<V>(self, mut map: V) -> Result<$struct_name, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut world = $struct_name::default();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        $(
+                            stringify!($entity) => {
+                                world.[<$entity:snake>] =
+                                    <slotmap::DenseSlotMap<slotmap::DefaultKey, $entity> as SerdeArena<'de>>::deserialize_arena(&mut map)?;
+                            }
+                        )*
+                        other => {
+                            return Err(V::Error::custom(format!(
+                                "Unknown field '{}' for {}",
+                                other,
+                                stringify!($struct_name)
+                            )));
+                        }
+                    }
+                }
+
+                Ok(world)
+            }
+
+            // Bincode-style: sequence fields.
+            // WARNING! Requires stated entities not changing order
+            fn visit_seq<V>(self, mut seq: V) -> Result<$struct_name, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+               Ok($struct_name {
+                    $(
+                        [<$entity:snake>]: <slotmap::DenseSlotMap<slotmap::DefaultKey, $entity> as SerdeArena<'de>>::from_seq(&mut seq, stringify!($entity))?,
+                    )*
+                })
+            }
+        }
+
+        // Choose entry point depending on deserializer type
+        //
+        // JSON/CBOR: calls `deserialize_struct` -> `visit_map`
+        // Bincode: must call `deserialize_struct` directly (sequence)
+        deserializer.deserialize_struct(
+            stringify!($struct_name),
+            &[<$struct_name:upper _DESERIALIZE_FIELDS>],
+            WorldVisitor,
+        )
+    }
+}
+
 
         }
     };
@@ -330,26 +563,53 @@ impl $struct_name {
 #[cfg(test)]
 mod tests {
     #[derive(Debug)]
-    struct Player { id: u32 }
+    #[cfg_attr(
+        feature = "serde",
+        derive(serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)
+    )]
+    struct Player {
+        id: u32,
+    }
     #[derive(Debug)]
-    struct Enemy { hp: u32 }
+    // each type individually can opt in to being serde
+    #[cfg_attr(
+        feature = "serde",
+        derive(serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode)
+    )]
+    struct Enemy {
+        hp: u32,
+    }
 
-    pub trait TestTrait { fn do_something(&self); }
-    impl TestTrait for Player { fn do_something(&self) { println!("Player {}", self.id) } }
-    impl TestTrait for Enemy { fn do_something(&self) { println!("Enemy {}", self.hp) } }
+    pub trait TestTrait {
+        fn do_something(&self);
+    }
+    impl TestTrait for Player {
+        fn do_something(&self) {
+            println!("Player {}", self.id)
+        }
+    }
+    impl TestTrait for Enemy {
+        fn do_something(&self) {
+            println!("Enemy {}", self.hp)
+        }
+    }
 
-    pub trait SecondTestTrait { fn do_something_else(&mut self); }
-    impl SecondTestTrait for Player { fn do_something_else(&mut self) { println!("Player second trait") } }
+    pub trait SecondTestTrait {
+        fn do_something_else(&mut self);
+    }
+    impl SecondTestTrait for Player {
+        fn do_something_else(&mut self) {
+            println!("Player second trait")
+        }
+    }
 
-    world!(MyWorld, Player, Enemy; TestTrait, SecondTestTrait);
+    world!(MyWorld, Enemy, Player; TestTrait, SecondTestTrait);
 
     #[test]
-    fn test_visit_traits() {
+    fn do_tests() {
         let mut world = MyWorld::default();
-
         // directly access arena member
         let player_id = world.player.insert(Player { id: 1 });
-
         // compile time type accessor of arena member
         world.arena_mut::<Enemy>().insert(Enemy { hp: 10 });
 
@@ -358,6 +618,7 @@ mod tests {
         world.par_visit_test_trait(|e| e.do_something());
         #[cfg(not(feature = "rayon"))]
         world.visit_test_trait(|e| e.do_something());
+
 
         #[cfg(feature = "rayon")]
         world.par_visit_mut_second_test_trait(|e| e.do_something_else());
@@ -368,8 +629,33 @@ mod tests {
         // manage it however you decide!
         let arena_id = MyWorld::arena_id::<Player>();
         let arena = world.arena_erased(arena_id);
-
-        let player = arena.get_any(player_id).unwrap().downcast_ref::<Player>().unwrap();
+        // unwrap: I know that this is a player and that the reference is valid
+        let player = arena
+            .get_any(player_id)
+            .unwrap()
+            .downcast_ref::<Player>()
+            .unwrap();
         player.do_something();
+
+        #[cfg(feature = "serde")]
+        {
+            // round trip different formats
+            let serialized = serde_json::to_string(&world).unwrap();
+            let deserialized_json: MyWorld = serde_json::from_str(&serialized).unwrap();
+
+            let serialized: Vec<u8> =
+                bincode::serde::encode_to_vec(&world, bincode::config::standard()).unwrap();
+            let (deserialized_bincode, _bytes_read): (MyWorld, usize) =
+                bincode::serde::decode_from_slice(&serialized, bincode::config::standard())
+                    .unwrap();
+
+            world.enemy.clear();
+
+            assert_eq!(format!("{:?}", world), format!("{:?}", deserialized_json));
+            assert_eq!(
+                format!("{:?}", world),
+                format!("{:?}", deserialized_bincode)
+            );
+        }
     }
 }
