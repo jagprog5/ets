@@ -1,7 +1,10 @@
 [package]
-name = "ets"
+name = "entity-trait-system"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/jagprog5/ets"
+description = "An alternative to ECS"
 
 [dependencies]
 paste = "1.0.15"
@@ -9,7 +12,7 @@ paste = "1.0.15"
 # slot map has been pretty stable for a while (2 years). this adds one small
 # commit - direct slice access to keys or values. handy for parallel iteration
 # over contiguous data. https://github.com/orlp/slotmap/pull/134
-slotmap = { git = "https://github.com/Swiiz/slotmap.git", rev = "425ad56" }
+slotmap = { git = "https://github.com/Swiiz/slotmap.git", version = "1.0.7", rev = "425ad56" }
 
 # needed for some random serde implementation detail
 once_cell = { version = "1.18", optional = true }
@@ -37,3 +40,7 @@ rayon = ["dep:rayon"]
 # Serialization support
 serde = ["dep:serde", "dep:once_cell", "slotmap/serde"]
 default = []
+
+# makes the world Debug fmt printable, but all contained entities must be also
+# debug
+debug = []

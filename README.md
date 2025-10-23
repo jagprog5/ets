@@ -1,5 +1,9 @@
 ## Entity Trait System
 
+[![Crates.io](https://img.shields.io/crates/v/entity-trait-system.svg)](https://crates.io/crates/entity-trait-system)
+
+
+
 Entity trait system (ETS) is an alternative to entity component system
 architectures.
 
@@ -17,8 +21,12 @@ feature - it's only used in a sound way.
 ## Example
 
 ```rs
+// explicitly opt in to language feature
+#![allow(incomplete_features)]
+#![feature(specialization)]
+
 // declare world, entities, and traits which the entities could have
-world!(MyWorld, Enemy, Player; TestTrait, SecondTestTrait);
+entity_trait_system::world!(MyWorld, Enemy, Player; TestTrait, SecondTestTrait);
 
 let mut world = MyWorld::default();
 // directly access arena member
