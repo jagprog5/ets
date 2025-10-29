@@ -3,7 +3,6 @@
 // a trait - there is no overlapping impl weirdness that is relied on
 #![allow(incomplete_features)]
 #![feature(specialization)]
-#![forbid(unsafe_code)]
 
 // macro is expanded at call site - makes it available to the lib user
 #[cfg(feature = "serde")]
@@ -44,7 +43,8 @@ pub trait ArenaCast<T> {
 // default: panic for mismatched types
 impl<A, B> ArenaCast<B> for slotmap::DenseSlotMap<slotmap::DefaultKey, A> {
     default fn cast(&self) -> &slotmap::DenseSlotMap<slotmap::DefaultKey, B> {
-        panic!( // never, gated at compile time
+        panic!(
+            // never, gated at compile time
             "Arena type mismatch: {} cannot be cast to {}",
             std::any::type_name::<A>(),
             std::any::type_name::<B>()
@@ -52,7 +52,8 @@ impl<A, B> ArenaCast<B> for slotmap::DenseSlotMap<slotmap::DefaultKey, A> {
     }
 
     default fn cast_mut(&mut self) -> &mut slotmap::DenseSlotMap<slotmap::DefaultKey, B> {
-        panic!( // never, gated at compile time
+        panic!(
+            // never, gated at compile time
             "Arena type mismatch: {} cannot be cast to {}",
             std::any::type_name::<A>(),
             std::any::type_name::<B>()
@@ -157,22 +158,6 @@ where
     const ACTIVE: bool = true;
 }
 
-// type erased view to arena of some type
-pub trait ErasedArena {
-    fn get_any(&self, key: slotmap::DefaultKey) -> Option<&dyn std::any::Any>;
-    fn get_any_mut(&mut self, key: slotmap::DefaultKey) -> Option<&mut dyn std::any::Any>;
-}
-
-impl<T: 'static> ErasedArena for slotmap::DenseSlotMap<slotmap::DefaultKey, T> {
-    fn get_any(&self, key: slotmap::DefaultKey) -> Option<&dyn std::any::Any> {
-        self.get(key).map(|e| e as &dyn std::any::Any)
-    }
-
-    fn get_any_mut(&mut self, key: slotmap::DefaultKey) -> Option<&mut dyn std::any::Any> {
-        self.get_mut(key).map(|e| e as &mut dyn std::any::Any)
-    }
-}
-
 #[macro_export]
 #[cfg(not(feature = "rayon"))]
 macro_rules! __world_define_rayon_trait_helpers {
@@ -187,28 +172,60 @@ macro_rules! __world_define_rayon_trait_helpers {
 
 $(
 trait [<ParVisitIf $trait_name>]<T> {
-    fn par_visit_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    fn pv_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where
         F: Fn(&dyn $trait_name) + Send + Sync;
 
-    fn par_visit_if_applicable_mut<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    fn pmv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where
         F: Fn(&mut dyn $trait_name) + Send + Sync;
+
+    fn pr_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: &P)
+    where
+        P: Fn(&mut dyn $trait_name) -> bool + Send + Sync;
+
+    fn pd_if_applicable<D, F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, out: &mut [D])
+    where
+        D: Send,
+        F: Fn(&dyn $trait_name) -> D + Send + Sync;
+
+    // parallel diff apply
+    fn pda_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, i: &[D])
+    where
+        D: Sync,
+        F: Fn(&mut dyn $trait_name, &D) + Send + Sync;
+
+    const ACTIVE: bool;
 }
 
 impl<T> [<ParVisitIf $trait_name>]<T> for () {
-    default fn par_visit_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
+    default fn pv_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(&dyn $trait_name) + Send + Sync {}
 
-    default fn par_visit_if_applicable_mut<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
+    default fn pmv_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(&mut dyn $trait_name) + Send + Sync {}
+
+    default fn pr_if_applicable<P>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _predicate: &P)
+    where P: Fn(&mut dyn $trait_name) -> bool + Send + Sync {}
+
+    default fn pd_if_applicable<D, F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F, _out: &mut [D])
+    where
+        D: Send,
+        F: Fn(&dyn $trait_name) -> D + Send + Sync {}
+
+    default fn pda_if_applicable<D, F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F, _i: &[D])
+    where
+        D: Sync,
+        F: Fn(&mut dyn $trait_name, &D) + Send + Sync {}
+
+    default const ACTIVE: bool = false;
 }
 
 impl<T> [<ParVisitIf $trait_name>]<T> for ()
 where
     T: $trait_name + Send + Sync,
 {
-    fn par_visit_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    fn pv_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(&dyn $trait_name) + Send + Sync
     {
         use $crate::rayon::iter::IntoParallelRefIterator;
@@ -216,10 +233,10 @@ where
         arena
             .values_as_slice()
             .par_iter()
-            .for_each(|entity| handler(entity as &dyn $trait_name));
+            .for_each(|entity| handler(entity));
     }
 
-    fn par_visit_if_applicable_mut<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    fn pmv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(&mut dyn $trait_name) + Send + Sync
     {
         use $crate::rayon::iter::IntoParallelRefMutIterator;
@@ -227,8 +244,55 @@ where
         arena
             .values_as_mut_slice()
             .par_iter_mut()
-            .for_each(|entity| handler(entity as &mut dyn $trait_name));
+            .for_each(|entity| handler(entity));
     }
+
+    fn pr_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: &P)
+    where P: Fn(&mut dyn $trait_name) -> bool + Send + Sync
+    {
+        // current par retain is only parallel between arenas, not per element.
+        //
+        // I don't think it's possible to do this better but I might be wrong.
+        // keeping send + sync for forward compat. either way, not supported by
+        // DenseSlotMap
+        arena.retain(|_, entity| predicate(entity));
+    }
+
+    fn pd_if_applicable<D, F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, out: &mut [D])
+    where D: Send,
+    F: Fn(&dyn $trait_name) -> D + Sync + Send,
+    {
+        use $crate::rayon::iter::IntoParallelRefMutIterator;
+        use $crate::rayon::iter::IndexedParallelIterator;
+        use $crate::rayon::iter::IntoParallelRefIterator;
+        use $crate::rayon::iter::ParallelIterator;
+        arena
+            .values_as_slice()
+            .par_iter()
+            .zip(out.par_iter_mut())
+            .for_each(|(e, out_slot)| {
+                *out_slot = handler(e);
+            });
+    }
+
+    fn pda_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, i: &[D])
+    where
+        D: Sync,
+        F: Fn(&mut dyn $trait_name, &D) + Send + Sync {
+            use $crate::rayon::iter::IntoParallelRefMutIterator;
+            use $crate::rayon::iter::IndexedParallelIterator;
+            use $crate::rayon::iter::IntoParallelRefIterator;
+            use $crate::rayon::iter::ParallelIterator;
+            arena
+                .values_as_mut_slice()
+                .par_iter_mut()
+                .zip(i.par_iter())
+                .for_each(|(e, in_value)| {
+                    handler(e, in_value);
+                });
+        }
+
+    const ACTIVE: bool = true;
 }
 
 )*
@@ -244,20 +308,79 @@ macro_rules! __world_define_visitors_common {
     (@pass_entity_tuple $($trait_name:ident),* @ $entity_tuple:tt) => {
         $crate::paste::paste! {
             $(
+                /// visit all entities that implement the trait
                 #[allow(unused)]
-                pub fn [<visit_ $trait_name:snake>]<F>(&self, mut handler: F)
+                pub fn [<v_ $trait_name:snake>]<F>(&self, mut handler: F)
                 where
                     F: FnMut(&dyn $trait_name)
                 {
                     $crate::__world_define_visitors_common!(@use_entity_tuple $trait_name $entity_tuple self handler);
                 }
 
+                /// mutably visit all entities that implement the trait
                 #[allow(unused)]
-                pub fn [<visit_mut_ $trait_name:snake>]<F>(&mut self, mut handler: F)
+                pub fn [<mv_ $trait_name:snake>]<F>(&mut self, mut handler: F)
                 where
                     F: FnMut(&mut dyn $trait_name)
                 {
-                    $crate::__world_define_visitors_common!(@use_entity_tuple_mut $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors_common!(@m_use_entity_tuple $trait_name $entity_tuple self handler);
+                }
+
+                /// forwards to r_with_default with DEFAULT=true
+                #[allow(unused)]
+                pub fn [<r_ $trait_name:snake>]<F>(&mut self, mut predicate: F)
+                where
+                    F: FnMut(&mut dyn $trait_name) -> bool
+                {
+                    self.[<r_with_default_ $trait_name:snake>]::<true, F>(predicate)
+                }
+
+                /// retain entities matching predicate, removing those that
+                /// don't.
+                ///
+                /// predicate applies only to entities implementing the trait.
+                ///
+                /// others instead use the DEFAULT value - if true entities not
+                /// implementing trait are kept, false they are removed.
+                #[allow(unused)]
+                pub fn [<r_with_default_ $trait_name:snake>]<const DEFAULT: bool, F>(&mut self, mut predicate: F)
+                where
+                    F: FnMut(&mut dyn $trait_name) -> bool
+                {
+                    $crate::__world_define_visitors_common!(@r_use_entity_tuple $trait_name $entity_tuple self predicate DEFAULT);
+                }
+
+                /// produce a diff vector, created from viewing all elements
+                /// that implement trait
+                #[allow(unused)]
+                pub fn [<d_ $trait_name:snake>]<D, F>(&mut self, mut handler: F) -> Vec<D>
+                where
+                    F: FnMut(&dyn $trait_name) -> D
+                {
+                    $crate::__world_define_visitors_common!(@d_use_entity_tuple $trait_name $entity_tuple self handler);
+                }
+
+                /// apply the diff vector. the number of elements
+                /// must not change between the creation and application of a
+                /// diff
+                #[allow(unused)]
+                pub fn [<da_ $trait_name:snake>]<D, F>(&mut self, diff: Vec<D>, mut handler: F)
+                where F: FnMut(&mut dyn $trait_name, &D)
+                {
+                    $crate::__world_define_visitors_common!(@da_use_entity_tuple $trait_name $entity_tuple self diff handler);
+                }
+
+                /// clear all arenas whose element type implements this trait.
+                /// No-op for arenas whose element types do not implement the trait.
+                #[allow(unused)]
+                pub fn [<clear_ $trait_name:snake>](&mut self) {
+                    $crate::__world_define_visitors_common!(@clear_use_entity_tuple $trait_name $entity_tuple self);
+                }
+
+                /// total number of elements across arenas whose element type implements trait
+                #[allow(unused)]
+                pub fn [<len_ $trait_name:snake>](&self) -> usize {
+                    $crate::__world_define_visitors_common!(@len_use_entity_tuple $trait_name $entity_tuple self)
                 }
             )*
         }
@@ -266,7 +389,7 @@ macro_rules! __world_define_visitors_common {
     (@use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
             $(
-                <() as [<VisitIf $trait_name>]<$entity>>::visit_if_applicable(
+                <() as [<VisitIf $trait_name>]<$entity>>::v_if_applicable(
                     &$self_ident.[<$entity:snake>],
                     &mut $handler_ident,
                 );
@@ -274,14 +397,98 @@ macro_rules! __world_define_visitors_common {
         }
     };
 
-    (@use_entity_tuple_mut $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@m_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
             $(
-                <() as [<VisitIf $trait_name>]<$entity>>::visit_if_applicable_mut(
+                <() as [<VisitIf $trait_name>]<$entity>>::mv_if_applicable(
                     &mut $self_ident.[<$entity:snake>],
                     &mut $handler_ident,
                 );
             )*
+        }
+    };
+
+    (@r_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $predicate:ident $default:ident) => {
+        $crate::paste::paste! {
+            $(
+                if <() as [<VisitIf $trait_name>]<$entity>>::ACTIVE {
+                    <() as [<VisitIf $trait_name>]<$entity>>::r_if_applicable::<_>(
+                        &mut $self_ident.[<$entity:snake>],
+                        &mut $predicate,
+                    );
+                } else {
+                    if !$default {
+                        $self_ident.[<$entity:snake>].clear();
+                    }
+                }
+            )*
+        }
+    };
+
+    (@d_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+            let len = $self_ident.[<len_$trait_name:snake>]();
+            let mut out = Vec::with_capacity(len);
+            unsafe { out.set_len(len); }
+            let mut offset = 0usize;
+            $(
+                let arena_len = <() as [<VisitIf $trait_name>]<$entity>>::len_if_applicable(
+                    & $self_ident.[<$entity:snake>],
+                );
+
+                <() as [<VisitIf $trait_name>]<$entity>>::d_if_applicable(
+                    & $self_ident.[<$entity:snake>],
+                    &mut $handler_ident,
+                    &mut out[offset..offset + arena_len],
+                );
+
+                offset += arena_len;
+            )*
+
+            return out;
+        }
+    };
+
+    (@da_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $diff_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+            let mut offset = 0usize;
+            $(
+                let arena_len = <() as [<VisitIf $trait_name>]<$entity>>::len_if_applicable(
+                    & $self_ident.[<$entity:snake>],
+                );
+
+                <() as [<VisitIf $trait_name>]<$entity>>::da_if_applicable(
+                    &mut $self_ident.[<$entity:snake>],
+                    &mut $handler_ident,
+                    &$diff_ident[offset..offset + arena_len],
+                );
+
+                offset += arena_len;
+            )*
+        }
+    };
+
+    (@clear_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident) => {
+        $crate::paste::paste! {
+            $(
+                <() as [<VisitIf $trait_name>]<$entity>>::clear_if_applicable(
+                    &mut $self_ident.[<$entity:snake>],
+                );
+            )*
+        }
+    };
+
+    (@len_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident) => {
+        $crate::paste::paste! {
+            {
+                let mut total = 0usize;
+                $(
+                    total += <() as [<VisitIf $trait_name>]<$entity>>::len_if_applicable(
+                        & $self_ident.[<$entity:snake>],
+                    );
+                )*
+                total
+            }
         }
     };
 }
@@ -308,60 +515,197 @@ macro_rules! __world_define_visitors {
         // parallel visit functions (added only when rayon feature enabled)
         $crate::paste::paste! {
             $(
+                /// in parallel, visit all entities that implement the trait
                 #[allow(unused)]
-                pub fn [<par_visit_ $trait_name:snake>]<F>(&self, handler: F)
+                pub fn [<pv_ $trait_name:snake>]<F>(&self, handler: F)
                 where
                     F: Fn(&dyn $trait_name) + Send + Sync
                 {
-                    $crate::__world_define_visitors!(@use_entity_tuple_par $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors!(@p_use_entity_tuple $trait_name $entity_tuple self handler);
                 }
 
+                /// in parallel, mutably visit all entities that implement the trait
                 #[allow(unused)]
-                pub fn [<par_visit_mut_ $trait_name:snake>]<F>(&mut self, handler: F)
+                pub fn [<pmv_ $trait_name:snake>]<F>(&mut self, handler: F)
                 where
                     F: Fn(&mut dyn $trait_name) + Send + Sync
                 {
-                    $crate::__world_define_visitors!(@use_entity_tuple_par_mut $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors!(@p_m_use_entity_tuple $trait_name $entity_tuple self handler);
+                }
+
+                /// forwards to pr_r_with_default with DEFAULT=true
+                #[allow(unused)]
+                pub fn [<pr_ $trait_name:snake>]<F>(&mut self, mut predicate: F)
+                where
+                    F: Fn(&mut dyn $trait_name) -> bool + Send + Sync
+                {
+                    self.[<pr_with_default_ $trait_name:snake>]::<true, F>(predicate)
+                }
+
+                /// WARN: this is parallel between arenas, not parallel between
+                /// elements. this may be improved in a future version
+                ///
+                /// in parallel, retain entities matching predicate, removing
+                /// those that don't.
+                ///
+                /// predicate applies only to entities implementing the trait.
+                ///
+                /// others instead use the DEFAULT value - if true entities not
+                /// implementing trait are kept, false they are removed.
+                #[allow(unused)]
+                pub fn [<pr_with_default_ $trait_name:snake>]<const DEFAULT: bool, F>(&mut self, mut predicate: F)
+                where
+                    F: Fn(&mut dyn $trait_name) -> bool + Send + Sync
+                {
+                    $crate::__world_define_visitors!(@pr_use_entity_tuple $trait_name $entity_tuple self predicate DEFAULT);
+                }
+
+                /// produce a diff vector, created from immutable viewing all
+                /// elements that implement trait
+                #[allow(unused)]
+                pub fn [<pd_ $trait_name:snake>]<D, F>(&mut self, mut handler: F) -> Vec<D>
+                where
+                    D: Send + Sync,
+                    F: Fn(&dyn $trait_name) -> D + Send + Sync
+                {
+                    $crate::__world_define_visitors!(@pd_use_entity_tuple $trait_name $entity_tuple self handler);
+                }
+
+                /// apply the diff vector. the number of elements
+                /// must not change between the creation and application of a
+                /// diff
+                #[allow(unused)]
+                pub fn [<pda_ $trait_name:snake>]<D, F>(&mut self, diff: Vec<D>, handler: F)
+                where
+                    D: Sync + Sync,
+                    F: Fn(&mut dyn $trait_name, &D) + Send + Sync
+                {
+                    $crate::__world_define_visitors!(@pda_use_entity_tuple $trait_name $entity_tuple self diff handler);
                 }
             )*
         }
     };
 
-    (@use_entity_tuple_par $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@p_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
-            use $crate::rayon::scope;
+        use $crate::rayon::scope;
             scope(|s| {
                 $(
-                    let arena_ref = &$self_ident.[<$entity:snake>];
-                    s.spawn(|_| {
-                        <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable(
-                            arena_ref,
-                            &$handler_ident,
-                        );
-                    });
+                    if <() as [<ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                        let arena_ref = &$self_ident.[<$entity:snake>];
+                        s.spawn(|_| {
+                            <() as [<ParVisitIf $trait_name>]<$entity>>::pv_if_applicable(
+                                arena_ref,
+                                &$handler_ident,
+                            );
+                        });
+                    }
                 )*
-
             });
         }
     };
 
-    (@use_entity_tuple_par_mut $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@p_m_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
             use $crate::rayon::scope;
             scope(|s| {
                 $(
+                    if <() as [<ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                        s.spawn(|_| {
+                            <() as [<ParVisitIf $trait_name>]<$entity>>::pmv_if_applicable(
+                                &mut $self_ident.[<$entity:snake>],
+                                &$handler_ident,
+                            );
+                        });
+                    }
+                )*
+            });
+        }
+    };
+
+    (@pr_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $predicate_ident:ident $default:ident) => {
+        $crate::paste::paste! {
+            use $crate::rayon::scope;
+            scope(|s| {
+                $(
+                    if <() as [<ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                        s.spawn(|_| {
+                            <() as [<ParVisitIf $trait_name>]<$entity>>::pr_if_applicable::<_>(
+                                &mut $self_ident.[<$entity:snake>],
+                                &$predicate_ident,
+                            );
+                        });
+                    } else {
+                        if !$default {
+                            $self_ident.[<$entity:snake>].clear();
+                        }
+                    }
+                )*
+            });
+        }
+    };
+
+    (@pd_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+            let len = $self_ident.[<len_$trait_name:snake>]();
+            let mut out = Vec::with_capacity(len);
+            unsafe { out.set_len(len); }
+            use $crate::rayon::scope;
+            scope(|s| {
+                let mut remaining: &mut [_] = &mut out[..];
+                $(
+                    if <() as [<ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                        let arena_len = <() as [<VisitIf $trait_name>]<$entity>>::len_if_applicable(
+                            & $self_ident.[<$entity:snake>],
+                        );
+
+                        let (arena_slice, rest) = remaining.split_at_mut(arena_len);
+                        remaining = rest;
+                        let arena_ref = &$self_ident.[<$entity:snake>];
+                        let handler_ref = &$handler_ident;
+                        s.spawn(move |_| {
+                            <() as [<ParVisitIf $trait_name>]<$entity>>::pd_if_applicable(
+                                arena_ref,
+                                handler_ref,
+                                arena_slice,
+                            );
+                        });
+                    }
+                )*
+            });
+
+            return out;
+        }
+    };
+
+    (@pda_use_entity_tuple $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $diff_ident:ident $handler_ident:ident) => {
+    $crate::paste::paste! {
+        use $crate::rayon::scope;
+        scope(|s| {
+            let mut remaining: &[_] = &$diff_ident[..];
+            $(
+                if <() as [<ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                    let arena_len = <() as [<VisitIf $trait_name>]<$entity>>::len_if_applicable(
+                        & $self_ident.[<$entity:snake>],
+                    );
+
+                    let (arena_slice, rest) = remaining.split_at(arena_len);
+                    remaining = rest;
                     let arena_ref = &mut $self_ident.[<$entity:snake>];
                     let handler_ref = &$handler_ident;
-                    s.spawn(|_| {
-                        <() as [<ParVisitIf $trait_name>]<$entity>>::par_visit_if_applicable_mut(
+
+                    s.spawn(move |_| {
+                        <() as [<ParVisitIf $trait_name>]<$entity>>::pda_if_applicable(
                             arena_ref,
                             handler_ref,
+                            arena_slice,
                         );
                     });
-                )*
-            });
-        }
-    };
+                }
+            )*
+        });
+    }
+};
 }
 
 #[macro_export]
@@ -392,6 +736,33 @@ macro_rules! __world_define_struct {
                     pub [<$entity:snake>]: $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, $entity>,
                 )*
             }
+        }
+    };
+}
+
+#[macro_export]
+#[cfg(not(feature = "serde"))]
+macro_rules! __world_define_key_struct {
+    ($struct_name:ident) => {
+        $crate::paste::paste! {
+            /// a unique id for an entity in the world. indicates which arena,
+            /// and which entity inside that arena
+            #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+            pub struct [<$struct_name Key>](pub [<$struct_name ArenaID>], pub $crate::slotmap::DefaultKey);
+        }
+    };
+}
+
+#[macro_export]
+#[cfg(feature = "serde")]
+macro_rules! __world_define_key_struct {
+    ($struct_name:ident) => {
+        $crate::paste::paste! {
+            /// a unique id for an entity in the world. indicates which arena,
+            /// and which entity inside that arena
+            #[derive(serde::Serialize, serde::Deserialize)]
+            #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+            pub struct [<$struct_name Key>](pub [<$struct_name ArenaID>], pub $crate::slotmap::DefaultKey);
         }
     };
 }
@@ -461,7 +832,8 @@ impl $crate::serde::ser::Serialize for $struct_name {
     }
 }
 
-// mut be 'static, and can't do this at compile time :(
+// serde requires this to be 'static. intuitively this should be do-able at
+// compile time but it is not :(
 static [<$struct_name:upper _DESERIALIZE_FIELDS>]: $crate::once_cell::sync::Lazy<Vec<&'static str>> =
     $crate::once_cell::sync::Lazy::new(|| {
         vec![
@@ -566,7 +938,7 @@ macro_rules! world {
     ) => {
         $crate::paste::paste! {
 
-/// select type erased arena at runtime
+/// the world is composed of arenas. this selects which arena
 // instead of typeid, which is not stable between rust version. e.g.
 // serialization? this id is determined by the order stated by the user when
 // creating the world
@@ -576,46 +948,115 @@ macro_rules! world {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct [<$struct_name ArenaID>](usize);
 
+$crate::__world_define_key_struct!($struct_name);
+
 $crate::__world_define_struct!($struct_name, $($entity),*);
 
 $(
     trait [<VisitIf $trait_name>]<T> {
-        fn visit_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F)
+        fn v_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F)
         where
             F: FnMut(&dyn $trait_name);
 
-        fn visit_if_applicable_mut<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F)
+        fn mv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F)
         where
             F: FnMut(&mut dyn $trait_name);
+
+        fn r_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: P)
+        where
+            P: FnMut(&mut dyn $trait_name) -> bool;
+
+        fn d_if_applicable<D, F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F, out: &mut [D])
+        where
+            F: FnMut(&dyn $trait_name) -> D;
+
+        fn da_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F, i: &[D])
+        where
+            F: FnMut(&mut dyn $trait_name, &D);
+
+        fn clear_if_applicable(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>);
+
+        fn len_if_applicable(arena: & $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>) -> usize;
+
+        const ACTIVE: bool;
     }
 
     // no-op for types not implementing the trait
     impl<T> [<VisitIf $trait_name>]<T> for () {
-        default fn visit_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
+        default fn v_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(&dyn $trait_name) {}
 
-        default fn visit_if_applicable_mut<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
+        default fn mv_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(&mut dyn $trait_name) {}
+
+        default fn r_if_applicable<P>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _predicate: P)
+        where P: FnMut(&mut dyn $trait_name) -> bool {}
+
+        default fn d_if_applicable<D, F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F, _out: &mut [D])
+        where
+            F: FnMut(&dyn $trait_name) -> D {}
+
+        default fn da_if_applicable<D, F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F, _i: &[D])
+        where
+            F: FnMut(&mut dyn $trait_name, &D) {}
+
+        default fn clear_if_applicable(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>) {}
+
+        default fn len_if_applicable(_arena: & $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>) -> usize { 0 }
+
+        default const ACTIVE: bool = false;
     }
 
     impl<T: $trait_name> [<VisitIf $trait_name>]<T> for () {
-        fn visit_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
+        fn v_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(&dyn $trait_name)
         {
             arena
                 .values_as_slice()
                 .iter()
-                .for_each(|entity| handler(entity as &dyn $trait_name));
+                .for_each(|entity| handler(entity));
         }
 
-        fn visit_if_applicable_mut<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
+        fn mv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(&mut dyn $trait_name)
         {
             arena
                 .values_as_mut_slice()
                 .iter_mut()
-                .for_each(|entity| handler(entity as &mut dyn $trait_name));
+                .for_each(|entity| handler(entity));
         }
+
+        fn r_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut predicate: P)
+        where P: FnMut(&mut dyn $trait_name) -> bool
+        {
+            arena.retain(|_, entity| predicate(entity));
+        }
+
+        fn d_if_applicable<D, F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F, out: &mut [D])
+        where
+            F: FnMut(&dyn $trait_name) -> D {
+                for (e, out_slot) in arena.values_as_slice().iter().zip(out.iter_mut()) {
+                    *out_slot = handler(e);
+                }
+            }
+
+        fn da_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F, i: &[D])
+        where
+            F: FnMut(&mut dyn $trait_name, &D) {
+                for (e, in_value) in arena.values_as_mut_slice().iter_mut().zip(i.iter()) {
+                    handler(e, in_value);
+                }
+            }
+
+        fn clear_if_applicable(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>) {
+            arena.clear();
+        }
+
+        fn len_if_applicable(arena: & $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>) -> usize {
+            arena.len()
+        }
+
+        default const ACTIVE: bool = true;
     }
 
 )*
@@ -630,7 +1071,7 @@ impl $struct_name {
             if <T as $crate::IsType<$entity>>::VALUE {
                 return <$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, $entity> as ArenaCast<T>>::cast(&self.[<$entity:snake>]);
             }
-        )*
+        )* // checked compiler explorer to be sure - all of this is constant folded with optimizations enabled
         panic!("In call to {}::arena::<{}>(), {} not registered", stringify!($struct_name), std::any::type_name::<T>(), std::any::type_name::<T>());
     }
 
@@ -645,7 +1086,7 @@ impl $struct_name {
         panic!("In call to {}::arena_mut::<{}>(), {} not registered", stringify!($struct_name), std::any::type_name::<T>(), std::any::type_name::<T>());
     }
 
-
+    #[allow(unused)]
     pub fn arena_id<T>() -> [<$struct_name ArenaID>] {
         let mut i = 0usize;
         $(
@@ -658,23 +1099,55 @@ impl $struct_name {
     }
 
     #[allow(unused)]
-    pub fn arena_erased(&self, id: [<$struct_name ArenaID>]) -> &dyn $crate::ErasedArena {
-        match id.0 {
+    pub fn get(&self, which: [<$struct_name Key>]) -> Option<&dyn std::any::Any> {
+        match (which.0).0 {
             $(
-                i if i == Self::arena_id::<$entity>().0 => &self.[<$entity:snake>] as &dyn $crate::ErasedArena,
+                i if i == Self::arena_id::<$entity>().0 => self.[<$entity:snake>].get(which.1).map(|e| e as &dyn std::any::Any),
             )*
-            _ => panic!("No arena for type id {}", id.0),
+            _ => panic!("No arena for type id {}", (which.0).0),
         }
     }
 
     #[allow(unused)]
-    pub fn arena_erased_mut(&mut self, id: [<$struct_name ArenaID>]) -> &mut dyn $crate::ErasedArena {
-        match id.0 {
+    pub unsafe fn get_unchecked(&self, which: [<$struct_name Key>]) -> &dyn std::any::Any {
+        match (which.0).0 {
             $(
-                i if i == Self::arena_id::<$entity>().0 => &mut self.[<$entity:snake>] as &mut dyn $crate::ErasedArena,
+                i if i == Self::arena_id::<$entity>().0 => (unsafe { self.[<$entity:snake>].get_unchecked(which.1) }) as &dyn std::any::Any,
             )*
-            _ => panic!("No arena for type id {}", id.0),
+            _ => panic!("No arena for type id {}", (which.0).0),
         }
+    }
+
+    #[allow(unused)]
+    pub fn get_mut(&mut self, which: [<$struct_name Key>]) -> Option<&mut dyn std::any::Any> {
+        match (which.0).0 {
+            $(
+                i if i == Self::arena_id::<$entity>().0 => self.[<$entity:snake>].get_mut(which.1).map(|e| e as &mut dyn std::any::Any),
+            )*
+            _ => panic!("No arena for type id {}", (which.0).0),
+        }
+    }
+
+    #[allow(unused)]
+    pub unsafe fn get_unchecked_mut(&mut self, which: [<$struct_name Key>]) -> &mut dyn std::any::Any {
+        match (which.0).0 {
+            $(
+                i if i == Self::arena_id::<$entity>().0 => (unsafe { self.[<$entity:snake>].get_unchecked_mut(which.1) }) as &mut dyn std::any::Any,
+            )*
+            _ => panic!("No arena for type id {}", (which.0).0),
+        }
+    }
+
+    #[allow(unused)]
+    pub fn clear(&mut self) {
+        $(
+            self.[<$entity:snake>].clear();
+        )*
+    }
+
+    #[allow(unused)]
+    pub fn len(&self) -> usize {
+        0 $( + self.[<$entity:snake>].len() )*
     }
 }
 
@@ -685,6 +1158,17 @@ $crate::__world_define_rayon_trait_helpers!($($trait_name),*);
         }
     };
 }
+
+// design decisions:
+// - no overlapping impl query. like "has trait X and not trait Y". this would
+//   go into the unsoundness territory of specialization, and it can be done
+//   already by simply defining a new trait which does exactly that
+// - no key-value visitors. if this is needed, then on insertion the object can
+//   store its own key
+// - no pdm_* variant - diff is intended to modification of same domain
+//   (immutable gather diff first, then apply later)
+// - names got long? for functions with variants (mutable or not, parallel or
+//   not), they are reduced in length. for those that don't (clear), left as is
 
 // ---------------------------------------------------------------
 // Tests
@@ -741,27 +1225,36 @@ mod tests {
         let player_id = world.player.insert(Player { id: 1 });
         // compile time type accessor of arena member
         world.arena_mut::<Enemy>().insert(Enemy { hp: 10 });
+        world.arena_mut::<Enemy>().insert(Enemy { hp: 9 });
+        world.arena_mut::<Enemy>().insert(Enemy { hp: 8 });
+        world.arena_mut::<Enemy>().insert(Enemy { hp: 7 });
 
-        // world.arena_mut::<usize>();
+        // world.arena_mut::<usize>(); // panic - type not in world
 
         // visit all arena with types that implement trait
         #[cfg(feature = "rayon")]
-        world.par_visit_test_trait(|e| e.do_something());
+        world.pv_test_trait(|e| {
+            e.do_something();
+        });
         #[cfg(not(feature = "rayon"))]
-        world.visit_test_trait(|e| e.do_something());
+        world.v_test_trait(|e| e.do_something());
+
+        println!("==========================================");
 
         #[cfg(feature = "rayon")]
-        world.par_visit_mut_second_test_trait(|e| e.do_something_else());
+        world.pmv_second_test_trait(|e| e.do_something_else());
         #[cfg(not(feature = "rayon"))]
-        world.visit_mut_second_test_trait(|e| e.do_something_else());
+        world.mv_second_test_trait(|e| e.do_something_else());
 
+        println!("==========================================");
         // runtime type accessor. unique id is tuple (arena_id, arena_key).
         // manage it however you decide!
         let arena_id = MyWorld::arena_id::<Player>();
-        let arena = world.arena_erased(arena_id);
+        // combined key: (arena id, slotmap key)
+        let player_key = MyWorldKey(arena_id, player_id);
         // unwrap: I know that this is a player and that the reference is valid
-        let player = arena
-            .get_any(player_id)
+        let player = world
+            .get(player_key)
             .unwrap()
             .downcast_ref::<Player>()
             .unwrap();

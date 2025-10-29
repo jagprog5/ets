@@ -42,10 +42,10 @@ world.visit_test_trait(|e| e.do_something());
 
 // runtime type API - access object without knowing the type beforehand
 let arena_id = MyWorld::arena_id::<Player>();
-let arena = world.arena_erased(arena_id);
+let player_key = MyWorldKey(arena_id, player_id);
 // unwrap: I know that this is a player and that the reference is valid
-let player = arena
-    .get_any(player_id)
+let player = world
+    .get(player_key)
     .unwrap()
     .downcast_ref::<Player>()
     .unwrap();
