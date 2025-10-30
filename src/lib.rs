@@ -235,9 +235,17 @@ trait [<$struct_name ParVisitIf $trait_name>]<T> {
     where
         F: Fn(&dyn $trait_name) + Send + Sync;
 
-    fn pmv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    fn pvm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where
         F: Fn(&mut dyn $trait_name) + Send + Sync;
+
+    fn pvk_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    where
+        F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) + Send + Sync;
+
+    fn pvkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    where
+        F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) + Send + Sync;
 
     fn pr_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: &P)
     where
@@ -266,8 +274,14 @@ impl<T> [<$struct_name ParVisitIf $trait_name>]<T> for () {
     default fn pv_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(&dyn $trait_name) + Send + Sync {}
 
-    default fn pmv_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
+    default fn pvm_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(&mut dyn $trait_name) + Send + Sync {}
+
+    default fn pvk_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
+    where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) + Send + Sync {}
+
+    default fn pvkm_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
+    where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) + Send + Sync {}
 
     default fn pr_if_applicable<P>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _predicate: &P)
     where P: Fn(&mut dyn $trait_name) -> bool + Send + Sync {}
@@ -305,7 +319,7 @@ where
             .for_each(|entity| handler(entity));
     }
 
-    fn pmv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    fn pvm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(&mut dyn $trait_name) + Send + Sync
     {
         use $crate::rayon::iter::IntoParallelRefMutIterator;
@@ -314,6 +328,32 @@ where
             .values_as_mut_slice()
             .par_iter_mut()
             .for_each(|entity| handler(entity));
+    }
+
+    fn pvk_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) + Send + Sync
+    {
+        use $crate::rayon::iter::IntoParallelRefIterator;
+        use $crate::rayon::iter::IndexedParallelIterator;
+        use $crate::rayon::iter::ParallelIterator;
+        let keys = arena.keys_as_slice();
+        let values = arena.values_as_slice();
+        keys.par_iter()
+            .zip(values.par_iter())
+            .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
+    }
+
+    fn pvkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
+    where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) + Send + Sync
+    {
+        use $crate::rayon::iter::IntoParallelRefIterator;
+        use $crate::rayon::iter::IntoParallelRefMutIterator;
+        use $crate::rayon::iter::IndexedParallelIterator;
+        use $crate::rayon::iter::ParallelIterator;
+        let (keys, values) = arena.keys_values_as_mut_slices();
+        keys.par_iter()
+            .zip(values.par_iter_mut())
+            .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
     }
 
     fn pr_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: &P)
@@ -401,7 +441,7 @@ macro_rules! __world_define_visitors_common {
                 where
                     F: FnMut(&dyn $trait_name)
                 {
-                    $crate::__world_define_visitors_common!(@use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors_common!(@v_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
                 }
 
                 /// mutably visit all entities that implement the trait
@@ -410,7 +450,33 @@ macro_rules! __world_define_visitors_common {
                 where
                     F: FnMut(&mut dyn $trait_name)
                 {
-                    $crate::__world_define_visitors_common!(@m_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors_common!(@vm_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                }
+
+                /// visit all entities that implement the trait, with their keys
+                /// 
+                /// since the slotmap key is type agnostic, it's important to
+                /// keep the arena id together with the slot map key (don't use
+                /// the slot map key on the wrong slot map)
+                #[allow(unused)]
+                pub fn [<visit_key_ $trait_name:snake>]<F>(&self, mut handler: F)
+                where
+                    F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name)
+                {
+                    $crate::__world_define_visitors_common!(@vk_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                }
+
+                /// mutably visit all entities that implement the trait, with their keys
+                /// 
+                /// since the slotmap key is type agnostic, it's important to
+                /// keep the arena id together with the slot map key (don't use
+                /// the slot map key on the wrong slot map)
+                #[allow(unused)]
+                pub fn [<visit_key_mut_ $trait_name:snake>]<F>(&mut self, mut handler: F)
+                where
+                    F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name)
+                {
+                    $crate::__world_define_visitors_common!(@vkm_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
                 }
 
                 /// forwards to retain_with_default with DEFAULT=true
@@ -486,11 +552,23 @@ macro_rules! __world_define_visitors_common {
                 pub fn [<len_ $trait_name:snake>](&self) -> usize {
                     $crate::__world_define_visitors_common!(@len_use_entity_tuple $struct_name $trait_name $entity_tuple self)
                 }
+
+                /// get type erased arenas whose element type implements this trait
+                #[allow(unused)]
+                pub fn [<any_arenas_ $trait_name:snake>](&self) -> [&dyn $crate::ErasedArena; $crate::__world_define_visitors_common!(@any_arenas_count_use_entity_tuple $struct_name $trait_name $entity_tuple)] {
+                    $crate::__world_define_visitors_common!(@any_arenas_use_entity_tuple $struct_name $trait_name $entity_tuple self)
+                }
+
+                /// get type erased arenas (mutable) whose element type implements this trait
+                #[allow(unused)]
+                pub fn [<any_arenas_mut_ $trait_name:snake>](&mut self) -> [&mut dyn $crate::ErasedArena; $crate::__world_define_visitors_common!(@any_arenas_count_use_entity_tuple $struct_name $trait_name $entity_tuple)] {
+                    $crate::__world_define_visitors_common!(@any_arenas_mut_use_entity_tuple $struct_name $trait_name $entity_tuple self)
+                }
             )*
         }
     };
 
-    (@use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@v_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
             $(
                 <() as [<$struct_name VisitIf $trait_name>]<$entity>>::v_if_applicable(
@@ -501,10 +579,32 @@ macro_rules! __world_define_visitors_common {
         }
     };
 
-    (@m_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@vk_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+            $(
+                <() as [<$struct_name VisitIf $trait_name>]<$entity>>::vk_if_applicable(
+                    &$self_ident.[<$entity:snake>],
+                    &mut $handler_ident,
+                );
+            )*
+        }
+    };
+
+    (@vm_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
             $(
                 <() as [<$struct_name VisitIf $trait_name>]<$entity>>::mv_if_applicable(
+                    &mut $self_ident.[<$entity:snake>],
+                    &mut $handler_ident,
+                );
+            )*
+        }
+    };
+
+    (@vkm_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+            $(
+                <() as [<$struct_name VisitIf $trait_name>]<$entity>>::vkm_if_applicable(
                     &mut $self_ident.[<$entity:snake>],
                     &mut $handler_ident,
                 );
@@ -633,6 +733,58 @@ macro_rules! __world_define_visitors_common {
             }
         }
     };
+
+    (@any_arenas_count_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) ) => {
+        $crate::paste::paste! {
+            {
+                0 $(+ if <() as [<$struct_name VisitIf $trait_name>]<$entity>>::ACTIVE {1} else {0})*
+            }
+        }
+    };
+
+    (@any_arenas_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident) => {
+        $crate::paste::paste! {
+            {
+                const NUM_ARENAS: usize = 0 $(+ if <() as [<$struct_name VisitIf $trait_name>]<$entity>>::ACTIVE {1} else {0})*;
+                let mut tmp: [std::mem::MaybeUninit<&dyn $crate::ErasedArena>; NUM_ARENAS] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+                let mut idx = 0;
+                $(
+                    if <() as [<$struct_name VisitIf $trait_name>]<$entity>>::ACTIVE {
+                        tmp[idx] = std::mem::MaybeUninit::new(&$self_ident.[<$entity:snake>] as &dyn $crate::ErasedArena);
+                        idx += 1;
+                    }
+                )*
+                unsafe {
+                    std::mem::transmute::<
+                        [std::mem::MaybeUninit<&dyn $crate::ErasedArena>; NUM_ARENAS],
+                        [&dyn $crate::ErasedArena; NUM_ARENAS]
+                    >(tmp)
+                }
+            }
+        }
+    };
+
+    (@any_arenas_mut_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident) => {
+        $crate::paste::paste! {
+            {
+                const NUM_ARENAS: usize = 0 $(+ if <() as [<$struct_name VisitIf $trait_name>]<$entity>>::ACTIVE {1} else {0})*;
+                let mut tmp: [std::mem::MaybeUninit<&mut dyn $crate::ErasedArena>; NUM_ARENAS] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+                let mut idx = 0;
+                $(
+                    if <() as [<$struct_name VisitIf $trait_name>]<$entity>>::ACTIVE {
+                        tmp[idx] = std::mem::MaybeUninit::new(&mut $self_ident.[<$entity:snake>] as &mut dyn $crate::ErasedArena);
+                        idx += 1;
+                    }
+                )*
+                unsafe {
+                    std::mem::transmute::<
+                        [std::mem::MaybeUninit<&mut dyn $crate::ErasedArena>; NUM_ARENAS],
+                        [&mut dyn $crate::ErasedArena; NUM_ARENAS]
+                    >(tmp)
+                }
+            }
+        }
+    };
 }
 
 #[macro_export]
@@ -663,7 +815,7 @@ macro_rules! __world_define_visitors {
                 where
                     F: Fn(&dyn $trait_name) + Send + Sync
                 {
-                    $crate::__world_define_visitors!(@p_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors!(@pv_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
                 }
 
                 /// in parallel, mutably visit all entities that implement the trait
@@ -672,7 +824,35 @@ macro_rules! __world_define_visitors {
                 where
                     F: Fn(&mut dyn $trait_name) + Send + Sync
                 {
-                    $crate::__world_define_visitors!(@p_m_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                    $crate::__world_define_visitors!(@pvm_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                }
+
+                /// in parallel, visit all entities that implement the trait,
+                /// with their keys
+                /// 
+                /// since the slotmap key is type agnostic, it's important to
+                /// keep the arena id together with the slot map key (don't use
+                /// the slot map key on the wrong slot map)
+                #[allow(unused)]
+                pub fn [<par_visit_key_ $trait_name:snake>]<F>(&self, handler: F)
+                where
+                    F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) + Send + Sync
+                {
+                    $crate::__world_define_visitors!(@pvk_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
+                }
+
+                /// in parallel, mutably visit all entities that implement the
+                /// trait, with their keys
+                ///
+                /// since the slotmap key is type agnostic, it's important to
+                /// keep the arena id together with the slot map key (don't use
+                /// the slot map key on the wrong slot map)
+                #[allow(unused)]
+                pub fn [<par_visit_key_mut_ $trait_name:snake>]<F>(&mut self, handler: F)
+                where
+                    F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) + Send + Sync
+                {
+                    $crate::__world_define_visitors!(@pvkm_use_entity_tuple $struct_name $trait_name $entity_tuple self handler);
                 }
 
                 /// forwards to par_retain_with_default with DEFAULT=true
@@ -745,7 +925,7 @@ macro_rules! __world_define_visitors {
         }
     };
 
-    (@p_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@pv_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
         use $crate::rayon::scope;
             scope(|s| {
@@ -764,14 +944,51 @@ macro_rules! __world_define_visitors {
         }
     };
 
-    (@p_m_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+    (@pvk_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+        use $crate::rayon::scope;
+            scope(|s| {
+                $(
+                    if <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                        let arena_ref = &$self_ident.[<$entity:snake>];
+                        s.spawn(|_| {
+                            <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::pvk_if_applicable(
+                                arena_ref,
+                                &$handler_ident,
+                            );
+                        });
+                    }
+                )*
+            });
+        }
+    };
+
+    (@pvm_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
         $crate::paste::paste! {
             use $crate::rayon::scope;
             scope(|s| {
                 $(
                     if <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::ACTIVE {
                         s.spawn(|_| {
-                            <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::pmv_if_applicable(
+                            <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::pvm_if_applicable(
+                                &mut $self_ident.[<$entity:snake>],
+                                &$handler_ident,
+                            );
+                        });
+                    }
+                )*
+            });
+        }
+    };
+
+    (@pvkm_use_entity_tuple $struct_name:ident $trait_name:ident ($( $entity:ty ),*) $self_ident:ident $handler_ident:ident) => {
+        $crate::paste::paste! {
+            use $crate::rayon::scope;
+            scope(|s| {
+                $(
+                    if <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::ACTIVE {
+                        s.spawn(|_| {
+                            <() as [<$struct_name ParVisitIf $trait_name>]<$entity>>::pvkm_if_applicable(
                                 &mut $self_ident.[<$entity:snake>],
                                 &$handler_ident,
                             );
@@ -1147,6 +1364,14 @@ $(
         where
             F: FnMut(&mut dyn $trait_name);
 
+        fn vk_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F)
+        where
+            F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name);
+
+        fn vkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: F)
+        where
+            F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name);
+
         fn r_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: P)
         where
             P: FnMut(&mut dyn $trait_name) -> bool;
@@ -1177,6 +1402,12 @@ $(
 
         default fn mv_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(&mut dyn $trait_name) {}
+
+        default fn vk_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
+        where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) {}
+
+        default fn vkm_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
+        where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) {}
 
         default fn r_if_applicable<P>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _predicate: P)
         where P: FnMut(&mut dyn $trait_name) -> bool {}
@@ -1248,6 +1479,25 @@ $(
                     handler(e, in_value);
                 }
             }
+
+        fn vk_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
+        where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name)
+        {
+            let keys = arena.keys_as_slice();
+            let values = arena.values_as_slice();
+            keys.iter()
+                .zip(values.iter())
+                .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
+        }
+
+        fn vkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
+        where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name)
+        {
+            let (keys, values) = arena.keys_values_as_mut_slices();
+            keys.iter()
+                .zip(values.iter_mut())
+                .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
+        }
 
         fn clear_if_applicable(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>) {
             arena.clear();
@@ -1356,16 +1606,6 @@ $crate::__world_define_rayon_trait_helpers!($struct_name $($trait_name),*);
         }
     };
 }
-
-// design decisions:
-// - no overlapping impl query. like "has trait X and not trait Y". this would
-//   go into the unsoundness territory of specialization, and it can be done
-//   already by simply defining a new trait which does exactly that
-// - no key-value visitors. if this is needed, then on insertion the object can
-//   store its own key
-//   (immutable gather diff first, then apply later)
-// - no generic type erased visitor, that would be too slow. if needed, define a
-//   trait that all entities implement
 
 // ---------------------------------------------------------------
 // Tests
@@ -1714,9 +1954,9 @@ mod tests {
         let mut world = MyWorld::default();
 
         // Insert in specific order
-        let e1 = world.enemy.insert(Enemy { hp: 10 });
-        let e2 = world.enemy.insert(Enemy { hp: 20 });
-        let p1 = world.player.insert(Player { id: 5 });
+        let _e1 = world.enemy.insert(Enemy { hp: 10 });
+        let _e2 = world.enemy.insert(Enemy { hp: 20 });
+        let _p1 = world.player.insert(Player { id: 5 });
 
         // Create diff that captures original metrics
         let original = world.diff_test_trait(|t| t.metric());
@@ -1733,525 +1973,371 @@ mod tests {
             .collect();
         world.diff_apply_test_trait(restore_diff, |t, delta| t.add(*delta));
 
-        // Verify order and values restored
+        // Verify restoration
+        let mut final_metrics = Vec::new();
+        world.visit_test_trait(|t| final_metrics.push(t.metric()));
+        assert_eq!(final_metrics, vec![10, 20, 5]);
+    }
+
+    #[test]
+    fn visit_key_provides_correct_keys_and_arena_ids() {
+        let mut world = MyWorld::default();
+        
+        let e1 = world.enemy.insert(Enemy { hp: 10 });
+        let e2 = world.enemy.insert(Enemy { hp: 20 });
+        let p1 = world.player.insert(Player { id: 5 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Collect (ArenaID, Key) pairs via visit_key
+        let mut collected = Vec::new();
+        world.visit_key_test_trait(|(arena_id, key), _entity| {
+            collected.push((arena_id, key));
+        });
+        
+        // Should have all 3 keys with correct arena IDs
+        assert_eq!(collected.len(), 3);
+        
+        // Verify Arena IDs and keys match
+        assert!(collected.contains(&(enemy_arena_id, e1)));
+        assert!(collected.contains(&(enemy_arena_id, e2)));
+        assert!(collected.contains(&(player_arena_id, p1)));
+    }
+
+    #[test]
+    fn visit_key_entity_association_with_arena_id() {
+        let mut world = MyWorld::default();
+        
+        let e1 = world.enemy.insert(Enemy { hp: 100 });
+        let e2 = world.enemy.insert(Enemy { hp: 200 });
+        let p1 = world.player.insert(Player { id: 50 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Verify ArenaID-key-entity triplets are correct
+        world.visit_key_test_trait(|(arena_id, key), entity| {
+            let metric = entity.metric();
+            
+            // Verify the ArenaID + key matches the entity's value
+            if arena_id == enemy_arena_id && key == e1 {
+                assert_eq!(metric, 100);
+            } else if arena_id == enemy_arena_id && key == e2 {
+                assert_eq!(metric, 200);
+            } else if arena_id == player_arena_id && key == p1 {
+                assert_eq!(metric, 50);
+            } else {
+                panic!("Unexpected ArenaID/key combination");
+            }
+        });
+    }
+
+    #[test]
+    fn visit_key_mut_can_modify_entities_by_arena_id() {
+        let mut world = MyWorld::default();
+        
+        let e1 = world.enemy.insert(Enemy { hp: 10 });
+        let p1 = world.player.insert(Player { id: 5 });
+        let p2 = world.player.insert(Player { id: 7 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Modify entities based on their ArenaID + key
+        world.visit_key_mut_test_trait(|(arena_id, key), entity| {
+            if arena_id == enemy_arena_id && key == e1 {
+                entity.add(90); // hp: 10 -> 100
+            } else if arena_id == player_arena_id && key == p1 {
+                entity.add(95); // id: 5 -> 100
+            } else if arena_id == player_arena_id && key == p2 {
+                entity.add(93); // id: 7 -> 100
+            }
+        });
+        
+        // Verify modifications
+        assert_eq!(world.enemy.get(e1).unwrap().hp, 100);
+        assert_eq!(world.player.get(p1).unwrap().id, 100);
+        assert_eq!(world.player.get(p2).unwrap().id, 100);
+    }
+
+    #[test]
+    fn visit_key_ordering_with_arena_ids() {
+        let mut world = MyWorld::default();
+        
+        // Insert in specific order
+        let e1 = world.enemy.insert(Enemy { hp: 1 });
+        let e2 = world.enemy.insert(Enemy { hp: 2 });
+        let p1 = world.player.insert(Player { id: 3 });
+        let p2 = world.player.insert(Player { id: 4 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Collect in visitation order
+        let mut arena_key_pairs = Vec::new();
+        world.visit_key_test_trait(|(arena_id, key), _| {
+            arena_key_pairs.push((arena_id, key));
+        });
+        
+        // Should match: enemies first (in insertion order), then players
+        assert_eq!(arena_key_pairs, vec![
+            (enemy_arena_id, e1),
+            (enemy_arena_id, e2),
+            (player_arena_id, p1),
+            (player_arena_id, p2),
+        ]);
+    }
+
+    #[test]
+    fn visit_key_with_selective_trait_arena_ids() {
+        let mut world = MyWorld::default();
+        
+        let _e1 = world.enemy.insert(Enemy { hp: 10 });
+        let p1 = world.player.insert(Player { id: 5 });
+        let p2 = world.player.insert(Player { id: 7 });
+        
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // SecondTestTrait only implemented by Player
+        let mut player_data = Vec::new();
+        world.visit_key_second_test_trait(|(arena_id, key), _| {
+            player_data.push((arena_id, key));
+        });
+        
+        // Should only have player keys with player arena ID
+        assert_eq!(player_data.len(), 2);
+        assert!(player_data.contains(&(player_arena_id, p1)));
+        assert!(player_data.contains(&(player_arena_id, p2)));
+    }
+
+    #[test]
+    fn visit_key_mut_selective_modification_by_arena_id() {
+        let mut world = MyWorld::default();
+        
+        world.enemy.insert(Enemy { hp: 10 });
+        world.enemy.insert(Enemy { hp: 20 });
+        let p1 = world.player.insert(Player { id: 5 });
+        let p2 = world.player.insert(Player { id: 7 });
+        
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Modify only players via SecondTestTrait, verifying ArenaID
+        world.visit_key_mut_second_test_trait(|(arena_id, _key), entity| {
+            assert_eq!(arena_id, player_arena_id);
+            entity.touch(); // adds 1000 to id
+        });
+        
+        // Verify only players were modified
+        assert_eq!(world.player.get(p1).unwrap().id, 1005);
+        assert_eq!(world.player.get(p2).unwrap().id, 1007);
+        
+        // Enemies unchanged
+        let enemy_hps: Vec<i32> = world.enemy.values().map(|e| e.hp).collect();
+        assert_eq!(enemy_hps, vec![10, 20]);
+    }
+
+    #[test]
+    fn visit_key_empty_world_no_arena_ids() {
+        let world = MyWorld::default();
+        
+        let mut visited = false;
+        world.visit_key_test_trait(|(_arena_id, _key), _entity| {
+            visited = true;
+        });
+        
+        assert!(!visited);
+    }
+
+    #[cfg(feature = "rayon")]
+    #[test]
+    fn par_visit_key_mut_concurrent_modification_with_arena_ids() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        
+        let mut world = MyWorld::default();
+        
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Insert many entities
+        for i in 0..100 {
+            world.player.insert(Player { id: i });
+        }
+        
+        let modification_count = AtomicI32::new(0);
+        
+        // Modify all in parallel, verifying ArenaID
+        world.par_visit_key_mut_test_trait(|(arena_id, _key), entity| {
+            assert_eq!(arena_id, player_arena_id);
+            entity.add(1000);
+            modification_count.fetch_add(1, Ordering::Relaxed);
+        });
+        
+        // Verify all were modified
+        assert_eq!(modification_count.load(Ordering::Relaxed), 100);
+        
+        // Verify values
+        for player in world.player.values() {
+            assert!(player.id >= 1000 && player.id < 1100);
+        }
+    }
+
+    #[cfg(feature = "rayon")]
+    #[test]
+    fn par_visit_key_ordering_deterministic_with_arena_ids() {
+        let mut world = MyWorld::default();
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Insert many entities
+        let mut expected_pairs = Vec::new();
+        for i in 0..50 {
+            expected_pairs.push((enemy_arena_id, world.enemy.insert(Enemy { hp: i })));
+            expected_pairs.push((player_arena_id, world.player.insert(Player { id: i })));
+        }
+        
+        // Collect in visitation order
+        let mut seq_pairs = Vec::new();
+        world.visit_key_test_trait(|(arena_id, key), _| {
+            seq_pairs.push((arena_id, key));
+        });
+        
+        // Collect pairs via parallel visit (multiple times to check consistency)
+        for _ in 0..5 {
+            let mut par_pairs = Vec::new();
+            world.visit_key_test_trait(|(arena_id, key), _| {
+                par_pairs.push((arena_id, key));
+            });
+            
+            // Order should be deterministic and match sequential
+            assert_eq!(par_pairs, seq_pairs);
+        }
+    }
+
+    #[test]
+    fn visit_key_with_removal_during_iteration_arena_ids() {
+        let mut world = MyWorld::default();
+        
+        let e1 = world.enemy.insert(Enemy { hp: 10 });
+        let e2 = world.enemy.insert(Enemy { hp: 20 });
+        let p1 = world.player.insert(Player { id: 5 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Collect (ArenaID, key) pairs to remove
+        let mut to_remove = Vec::new();
+        world.visit_key_test_trait(|(arena_id, key), entity| {
+            if entity.metric() > 10 {
+                to_remove.push((arena_id, key));
+            }
+        });
+        
+        // Remove after iteration (not during)
+        for (arena_id, key) in to_remove {
+            if arena_id == enemy_arena_id {
+                world.enemy.remove(key);
+            } else if arena_id == player_arena_id {
+                world.player.remove(key);
+            }
+        }
+        
+        // Verify correct entities remain
+        assert!(world.enemy.get(e1).is_some()); // hp=10, not removed
+        assert!(world.enemy.get(e2).is_none()); // hp=20, removed
+        assert!(world.player.get(p1).is_some()); // id=5 < 10, not removed
+    }
+
+    #[test]
+    fn visit_key_mut_with_arena_id_dependent_logic() {
+        let mut world = MyWorld::default();
+        
+        let e1 = world.enemy.insert(Enemy { hp: 10 });
+        let e2 = world.enemy.insert(Enemy { hp: 20 });
+        let p1 = world.player.insert(Player { id: 5 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let target_key = e2;
+        
+        // Modify only the targeted entity, verifying ArenaID
+        world.visit_key_mut_test_trait(|(arena_id, key), entity| {
+            if arena_id == enemy_arena_id && key == target_key {
+                entity.add(1000);
+            }
+        });
+        
+        // Verify only e2 was modified
         assert_eq!(world.enemy.get(e1).unwrap().hp, 10);
-        assert_eq!(world.enemy.get(e2).unwrap().hp, 20);
+        assert_eq!(world.enemy.get(e2).unwrap().hp, 1020);
         assert_eq!(world.player.get(p1).unwrap().id, 5);
     }
 
     #[test]
-    fn clear_trait_specific_leaves_others() {
-        let mut world = AnotherWorld::default();
-
-        world.enemy.insert(Enemy { hp: 10 });
-        world.player.insert(Player { id: 1 });
-        world.non_trait.insert(NonTrait { val: 99 });
-
-        // Clear only SecondTestTrait implementers (Player only)
-        world.clear_second_test_trait();
-
-        assert_eq!(world.player.len(), 0);
-        assert_eq!(world.enemy.len(), 1); // Enemy doesn't implement SecondTestTrait
-        assert_eq!(world.non_trait.len(), 1);
-    }
-
-    #[test]
-    fn len_trait_specific_counts_only_implementers() {
-        let mut world = AnotherWorld::default();
-
-        world.enemy.insert(Enemy { hp: 10 });
-        world.enemy.insert(Enemy { hp: 20 });
-        world.player.insert(Player { id: 1 });
-        world.non_trait.insert(NonTrait { val: 99 });
-
-        // TestTrait: Enemy + Player (3 total)
-        assert_eq!(world.len_test_trait(), 3);
-
-        // SecondTestTrait: Player only (1 total)
-        assert_eq!(world.len_second_test_trait(), 1);
-
-        // Total world: all entities
-        assert_eq!(world.len(), 4);
-    }
-
-    #[test]
-    #[should_panic(expected = "not registered")]
-    fn arena_access_panics_on_unregistered_type() {
-        let world = MyWorld::default();
-        // NonTrait is not in MyWorld
-        let _ = world.arena::<NonTrait>();
-    }
-
-    #[test]
-    #[should_panic(expected = "not registered")]
-    fn arena_mut_access_panics_on_unregistered_type() {
+    fn visit_key_distinguishes_same_key_different_arenas() {
+        // Create world where we might get same key values in different arenas
         let mut world = MyWorld::default();
-        let _ = world.arena_mut::<NonTrait>();
-    }
-
-    #[test]
-    #[should_panic(expected = "not registered")]
-    fn arena_id_panics_on_unregistered_type() {
-        let _ = MyWorld::arena_id::<NonTrait>();
-    }
-
-    #[test]
-    #[should_panic(expected = "No arena for type id")]
-    fn get_panics_on_invalid_arena_id() {
-        let world = MyWorld::default();
-        // Create invalid arena ID
-        let bad_id = MyWorldArenaID(999);
-        let _ = world.any_arena(bad_id);
-    }
-
-    #[test]
-    fn removed_keys_return_none() {
-        let mut world = MyWorld::default();
-
-        let player_id = MyWorld::arena_id::<Player>();
-        let key = world.player.insert(Player { id: 42 });
-
-        // Key is valid
-        assert!(world.any_arena(player_id).get(key).is_some());
-
-        // Remove the entity
-        world.player.remove(key);
-
-        // Key is now invalid
-        assert!(world.any_arena(player_id).get(key).is_none());
-    }
-
-    #[test]
-    fn downcast_to_wrong_type_returns_none() {
-        let mut world = MyWorld::default();
-        let player_id = MyWorld::arena_id::<Player>();
-        let key = world.player.insert(Player { id: 42 });
-
-        let entity = world.any_arena(player_id).get(key).unwrap();
-
-        // Downcast to correct type succeeds
-        assert!(entity.downcast_ref::<Player>().is_some());
-        assert_eq!(entity.downcast_ref::<Player>().unwrap().id, 42);
-
-        // Downcast to wrong type returns None
-        assert!(entity.downcast_ref::<Enemy>().is_none());
-        assert!(entity.downcast_ref::<NonTrait>().is_none());
-    }
-
-    #[test]
-    fn downcast_mut_to_wrong_type_returns_none() {
-        let mut world = MyWorld::default();
-        let enemy_id = MyWorld::arena_id::<Enemy>();
-        let key = world.enemy.insert(Enemy { hp: 100 });
-
-        let entity = world.any_arena_mut(enemy_id).get_mut(key).unwrap();
-
-        // Downcast to wrong type returns None
-        assert!(entity.downcast_mut::<Player>().is_none());
-
-        // Downcast to correct type succeeds
-        assert!(entity.downcast_mut::<Enemy>().is_some());
-        entity.downcast_mut::<Enemy>().unwrap().hp += 50;
-
-        // Verify mutation persisted
-        assert_eq!(world.enemy.get(key).unwrap().hp, 150);
-    }
-
-    #[test]
-    fn get_unchecked_with_valid_key() {
-        let mut world = MyWorld::default();
-        let player_id = MyWorld::arena_id::<Player>();
-        let key = world.player.insert(Player { id: 99 });
-
-        unsafe {
-            let entity = world.any_arena(player_id).get_unchecked(key);
-            let player = entity.downcast_ref::<Player>().unwrap();
-            assert_eq!(player.id, 99);
-        }
-    }
-
-    #[test]
-    fn get_unchecked_mut_with_valid_key() {
-        let mut world = MyWorld::default();
-        let enemy_id = MyWorld::arena_id::<Enemy>();
-        let key = world.enemy.insert(Enemy { hp: 50 });
-
-        unsafe {
-            let entity = world.any_arena_mut(enemy_id).get_unchecked_mut(key);
-            let enemy = entity.downcast_mut::<Enemy>().unwrap();
-            enemy.hp *= 2;
-        }
-
-        assert_eq!(world.enemy.get(key).unwrap().hp, 100);
-    }
-
-    #[cfg(all(feature = "serde"))]
-    #[test]
-    fn arena_id_serde_roundtrip() {
-        let arena_id = MyWorld::arena_id::<Player>();
-
-        // JSON round-trip
-        let serialized = serde_json::to_string(&arena_id).unwrap();
-        assert_eq!(serialized, "\"Player\"");
-        let deserialized: MyWorldArenaID = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(deserialized, arena_id);
-
-        // Enemy arena ID
-        let enemy_id = MyWorld::arena_id::<Enemy>();
-        let serialized = serde_json::to_string(&enemy_id).unwrap();
-        assert_eq!(serialized, "\"Enemy\"");
-        let deserialized: MyWorldArenaID = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(deserialized, enemy_id);
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn arena_id_deserialize_unknown_type_fails() {
-        let result = serde_json::from_str::<MyWorldArenaID>("\"UnknownType\"");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Unknown ArenaID string")
-        );
-    }
-
-    #[cfg(all(feature = "serde", feature = "debug"))]
-    #[test]
-    fn world_deserialize_unknown_field_fails() {
-        // Valid JSON structure but with an unknown entity type field
-        let json = r#"{"UnknownEntity":[]}"#;
-        let result = serde_json::from_str::<MyWorld>(json);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Unknown field") && err_msg.contains("UnknownEntity"));
-    }
-
-    #[test]
-    fn visitor_ordering_matches_insertion_order() {
-        let mut world = MyWorld::default();
-
-        // Insert in specific order
-        world.enemy.insert(Enemy { hp: 1 });
-        world.player.insert(Player { id: 2 });
-        world.enemy.insert(Enemy { hp: 3 });
-        world.player.insert(Player { id: 4 });
-        world.enemy.insert(Enemy { hp: 5 });
-
-        // Visit should iterate enemies first (in insertion order), then players
-        let mut metrics = Vec::new();
-        world.visit_test_trait(|t| metrics.push(t.metric()));
-
-        // Enemies: 1, 3, 5; Players: 2, 4
-        assert_eq!(metrics, vec![1, 3, 5, 2, 4]);
-    }
-
-    #[test]
-    fn single_entity_type_world() {
-        // World with only one entity type
-        world!(SingleWorld, Player; TestTrait);
-
-        let mut world = SingleWorld::default();
-        world.player.insert(Player { id: 1 });
-        world.player.insert(Player { id: 2 });
-
-        assert_eq!(world.len(), 2);
-        assert_eq!(world.len_test_trait(), 2);
-
-        let mut sum = 0;
-        world.visit_test_trait(|t| sum += t.metric());
-        assert_eq!(sum, 3);
-    }
-
-    #[test]
-    fn no_trait_world() {
-        // World with entity types but no queryable traits
-        world!(NoTraitWorld, Player, Enemy;);
-
-        let mut world = NoTraitWorld::default();
-        world.player.insert(Player { id: 1 });
-        world.enemy.insert(Enemy { hp: 10 });
-
-        assert_eq!(world.len(), 2);
-        assert_eq!(world.arena::<Player>().len(), 1);
-        assert_eq!(world.arena::<Enemy>().len(), 1);
-    }
-
-    #[test]
-    fn visitor_with_side_effects() {
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 1 });
-        world.player.insert(Player { id: 2 });
-        world.enemy.insert(Enemy { hp: 5 });
-
-        // Mutable visitor that increments all values
-        world.visit_mut_test_trait(|t| t.add(10));
-
-        // Verify side effects persisted
-        let mut total = 0;
-        world.visit_test_trait(|t| total += t.metric());
-        assert_eq!(total, (1 + 10) + (2 + 10) + (5 + 10)); // 41
-    }
-
-    #[test]
-    fn diff_apply_with_transformation() {
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 5 });
-        world.enemy.insert(Enemy { hp: 10 });
-        world.enemy.insert(Enemy { hp: 15 });
-
-        // Create diff: square all metrics
-        let diff = world.diff_test_trait(|t| {
-            let m = t.metric();
-            m * m
+        
+        // Clear and insert to potentially get same key values
+        world.clear();
+        
+        let e_key = world.enemy.insert(Enemy { hp: 100 });
+        let p_key = world.player.insert(Player { id: 200 });
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
+        // Even if keys have same underlying value, ArenaID distinguishes them
+        let mut visited = Vec::new();
+        world.visit_key_test_trait(|(arena_id, key), entity| {
+            visited.push((arena_id, key, entity.metric()));
         });
-        assert_eq!(diff, vec![100, 225, 25]); // hp: 10^2, 15^2, id: 5^2
-
-        // Apply: set metric to diff value (via add(diff - current))
-        world.diff_apply_test_trait(diff.clone(), |t, squared| {
-            let current = t.metric();
-            t.add(squared - current);
-        });
-
-        // Verify transformation applied
-        let final_metrics: Vec<i32> = world.diff_test_trait(|t| t.metric());
-        assert_eq!(final_metrics, vec![100, 225, 25]);
+        
+        // Should visit both entities with correct ArenaID
+        assert!(visited.contains(&(enemy_arena_id, e_key, 100)));
+        assert!(visited.contains(&(player_arena_id, p_key, 200)));
+        assert_eq!(visited.len(), 2);
     }
 
+    #[cfg(feature = "rayon")]
     #[test]
-    fn many_entities_iteration() {
+    fn par_visit_key_correct_arena_ids_per_spawn() {
+        use std::sync::{Arc, Mutex};
+        
         let mut world = MyWorld::default();
-
+        
+        let enemy_arena_id = MyWorld::arena_id::<Enemy>();
+        let player_arena_id = MyWorld::arena_id::<Player>();
+        
         // Insert many entities
         for i in 0..100 {
-            world.player.insert(Player { id: i });
-            world.enemy.insert(Enemy { hp: i * 2 });
+            world.enemy.insert(Enemy { hp: i });
+            world.player.insert(Player { id: i + 100 });
         }
-
-        assert_eq!(world.len(), 200);
-        assert_eq!(world.len_test_trait(), 200);
-
-        // Verify all visited exactly once
-        let mut count = 0;
-        world.visit_test_trait(|_| count += 1);
-        assert_eq!(count, 200);
-
-        // Verify retain works on large set
-        world.retain_test_trait(|t| t.metric() < 50);
-        assert!(world.len_test_trait() < 200);
-    }
-
-    #[test]
-    fn clear_individual_arenas_vs_world_clear() {
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 1 });
-        world.enemy.insert(Enemy { hp: 10 });
-
-        // Clear just player arena
-        world.player.clear();
-        assert_eq!(world.player.len(), 0);
-        assert_eq!(world.enemy.len(), 1);
-        assert_eq!(world.len(), 1);
-
-        // Add back
-        world.player.insert(Player { id: 2 });
-        assert_eq!(world.len(), 2);
-
-        // Clear entire world
-        world.clear();
-        assert_eq!(world.len(), 0);
-        assert_eq!(world.player.len(), 0);
-        assert_eq!(world.enemy.len(), 0);
-    }
-
-    #[cfg(feature = "rayon")]
-    #[test]
-    fn parallel_visitor_ordering_deterministic() {
-        let mut world = MyWorld::default();
-
-        for i in 0..50 {
-            world.player.insert(Player { id: i });
-            world.enemy.insert(Enemy { hp: i * 2 });
-        }
-
-        // Parallel diff should produce same result as sequential
-        let pdiff = world.par_diff_test_trait(|t| t.metric());
-        let sdiff = world.diff_test_trait(|t| t.metric());
-
-        assert_eq!(pdiff, sdiff);
-    }
-
-    #[cfg(all(feature = "serde"))]
-    #[test]
-    fn serde_preserves_slot_keys() {
-        let mut world = MyWorld::default();
-
-        let p_key = world.player.insert(Player { id: 42 });
-        let e_key = world.enemy.insert(Enemy { hp: 100 });
-
-        // Serialize
-        let serialized = serde_json::to_string(&world).unwrap();
-
-        // Deserialize
-        let mut de_world: MyWorld = serde_json::from_str(&serialized).unwrap();
-
-        // Original keys should still work in deserialized world
-        assert_eq!(de_world.player.get(p_key).unwrap().id, 42);
-        assert_eq!(de_world.enemy.get(e_key).unwrap().hp, 100);
-
-        // Can still insert new entities
-        de_world.player.insert(Player { id: 7 });
-        assert_eq!(de_world.player.len(), 2);
-    }
-
-    #[cfg(all(feature = "serde"))]
-    #[test]
-    fn serde_with_mixed_arenas() {
-        // Test world where some arenas are empty
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 1 });
-        // enemy arena is empty
-
-        let serialized = serde_json::to_string(&world).unwrap();
-        let de_world: MyWorld = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(de_world.player.len(), 1);
-        assert_eq!(de_world.enemy.len(), 0);
-    }
-
-    #[test]
-    fn nested_visitor_calls() {
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 1 });
-        world.player.insert(Player { id: 2 });
-        world.enemy.insert(Enemy { hp: 10 });
-
-        // Nested immutable visitors: outer visitor calls inner visitor
-        let mut outer_count = 0;
-        world.visit_test_trait(|outer_entity| {
-            outer_count += 1;
-            let outer_metric = outer_entity.metric();
-
-            // Inner visitor: count entities with metric > outer_metric
-            let mut inner_count = 0;
-            world.visit_test_trait(|inner_entity| {
-                if inner_entity.metric() > outer_metric {
-                    inner_count += 1;
-                }
-            });
-
-            // Just verify it doesn't panic and runs
-            let _ = inner_count;
+        
+        let collected = Arc::new(Mutex::new(Vec::new()));
+        let collected_clone = Arc::clone(&collected);
+        
+        // Parallel visit collecting (ArenaID, metric) pairs
+        world.par_visit_key_test_trait(move |(arena_id, _key), entity| {
+            collected_clone.lock().unwrap().push((arena_id, entity.metric()));
         });
-
-        assert_eq!(outer_count, 3); // Visited all entities
-    }
-
-    #[test]
-    fn diff_apply_with_removed_entities() {
-        let mut world = MyWorld::default();
-        let p1 = world.player.insert(Player { id: 1 });
-        world.player.insert(Player { id: 2 });
-        world.enemy.insert(Enemy { hp: 10 });
-
-        // Create diff
-        let diff = world.diff_test_trait(|t| t.metric() * 2);
-        assert_eq!(diff.len(), 3);
-
-        // Remove an entity
-        world.player.remove(p1);
-
-        // Applying mismatched diff leads to incorrect behavior
-        // (applying diff[2] to wrong entity) - this documents the footgun
-        assert_ne!(world.len_test_trait(), diff.len());
-    }
-
-    #[test]
-    fn arena_id_independent_across_worlds() {
-        // Define a second world with same entity types but different order
-        world!(WorldA, Player, Enemy; TestTrait);
-        world!(WorldB, Enemy, Player; TestTrait);
-
-        let id_a_player = WorldA::arena_id::<Player>();
-        let id_a_enemy = WorldA::arena_id::<Enemy>();
-        let id_b_player = WorldB::arena_id::<Player>();
-        let id_b_enemy = WorldB::arena_id::<Enemy>();
-
-        // WorldA: Player=0, Enemy=1 (declaration order)
-        assert_eq!(id_a_player.0, 0);
-        assert_eq!(id_a_enemy.0, 1);
-
-        // WorldB: Enemy=0, Player=1 (reverse order)
-        assert_eq!(id_b_enemy.0, 0);
-        assert_eq!(id_b_player.0, 1);
-
-        // Same entity type has different ArenaIDs in different worlds
-        assert_ne!(id_a_player.0, id_b_player.0);
-        assert_ne!(id_a_enemy.0, id_b_enemy.0);
-
-        // Type equality still works within each world
-        assert_eq!(WorldA::arena_id::<Player>(), id_a_player);
-        assert_eq!(WorldB::arena_id::<Player>(), id_b_player);
-    }
-
-    #[test]
-    fn diff_mut_modifies_during_diff_creation() {
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 5 });
-        world.player.insert(Player { id: 10 });
-        world.enemy.insert(Enemy { hp: 20 });
-        world.enemy.insert(Enemy { hp: 30 });
-
-        // diff_mut: capture current metric and increment it
-        let diff = world.diff_mut_test_trait(|t| {
-            let current = t.metric();
-            t.add(1); // modify during diff creation
-            current // return original value
-        });
-
-        // Diff should contain original values
-        assert_eq!(diff, vec![20, 30, 5, 10]);
-
-        // Entities should be incremented
-        let mut metrics = Vec::new();
-        world.visit_test_trait(|t| metrics.push(t.metric()));
-        assert_eq!(metrics, vec![21, 31, 6, 11]);
-
-        // Apply diff to restore original values
-        world.diff_apply_test_trait(diff, |t, original| {
-            let current = t.metric();
-            t.add(original - current);
-        });
-
-        // Verify restoration
-        let mut final_metrics = Vec::new();
-        world.visit_test_trait(|t| final_metrics.push(t.metric()));
-        assert_eq!(final_metrics, vec![20, 30, 5, 10]);
-    }
-
-    #[cfg(feature = "rayon")]
-    #[test]
-    fn par_diff_mut_modifies_during_diff_creation() {
-        let mut world = MyWorld::default();
-        world.player.insert(Player { id: 5 });
-        world.player.insert(Player { id: 10 });
-        world.enemy.insert(Enemy { hp: 20 });
-        world.enemy.insert(Enemy { hp: 30 });
-
-        // par_diff_mut: capture current metric and increment it
-        let diff = world.par_diff_mut_test_trait(|t| {
-            let current = t.metric();
-            t.add(1);
-            current
-        });
-
-        // Diff should contain original values (order preserved)
-        assert_eq!(diff, vec![20, 30, 5, 10]);
-
-        // Entities should be incremented
-        let mut metrics = Vec::new();
-        world.visit_test_trait(|t| metrics.push(t.metric()));
-        assert_eq!(metrics, vec![21, 31, 6, 11]);
+        
+        let results = collected.lock().unwrap();
+        
+        // Verify all enemy entities have enemy_arena_id
+        let enemy_results: Vec<_> = results.iter()
+            .filter(|(aid, _)| *aid == enemy_arena_id)
+            .map(|(_, m)| *m)
+            .collect();
+        assert_eq!(enemy_results.len(), 100);
+        assert!(enemy_results.iter().all(|m| *m < 100));
+        
+        // Verify all player entities have player_arena_id  
+        let player_results: Vec<_> = results.iter()
+            .filter(|(aid, _)| *aid == player_arena_id)
+            .map(|(_, m)| *m)
+            .collect();
+        assert_eq!(player_results.len(), 100);
+        assert!(player_results.iter().all(|m| *m >= 100));
     }
 }

@@ -47,6 +47,8 @@ player.do_something_else();
 ### Per-Trait Methods (generated for each trait)
 - `visit_<trait>` - Immutable iteration over implementing entities
 - `visit_mut_<trait>` - Mutable iteration over implementing entities
+- `visit_key_<trait>` - Immutable iteration with `(Key, &Value)` tuples
+- `visit_key_mut_<trait>` - Mutable iteration with `(Key, &mut Value)` tuples
 - `retain_<trait>` - Keep entities matching predicate
 - `retain_with_default_<trait>` - Keep with control over non-implementing types
 - `diff_<trait>` - Gather diff vector from immutable view, to apply later.
@@ -54,6 +56,8 @@ player.do_something_else();
 - `diff_apply_<trait>` - Apply diff vector
 - `clear_<trait>` - Clear all arenas implementing trait
 - `len_<trait>` - Count entities implementing trait
+- `any_arenas_<trait>` - Get fixed-size array of type-erased arenas implementing trait
+- `any_arenas_mut_<trait>` - Mutable version of above
 
 ### World Methods
 - `arena<T>()` / `arena_mut<T>()` - Compile-time typed arena access
@@ -67,11 +71,10 @@ player.do_something_else();
 - **Zero-cost abstractions**: Trait checks are compile-time via specialization
 - **Cache-friendly**: Uses `slotmap::DenseSlotMap` for contiguous storage per type
 - **Parallel safety**: `par_*` methods leverage rayon for multi-threaded iteration
-- **No virtual dispatch overhead** for typed arena access
+- **No virtual dispatch overhead** unless explicitly using type-erased api
 
 ## Rayon Support
 Parallel via `par_*` variants.
 
 ## Serde Support
 Both map (serde_json) and seq (bincode) style serialization.
-
