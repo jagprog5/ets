@@ -12,10 +12,7 @@ paste = "1.0.15"
 # slot map has been pretty stable for a while (2 years). this adds one small
 # commit - direct slice access to keys or values. handy for parallel iteration
 # over contiguous data. https://github.com/orlp/slotmap/pull/134
-slotmap = { git = "https://github.com/Swiiz/slotmap.git", version = "1.0.7", rev = "425ad56" }
-
-# needed for some random serde implementation detail
-once_cell = { version = "1.18", optional = true }
+slotmap = { git = "https://github.com/Swiiz/slotmap.git", version = "1.0.7", rev = "425ad56ec8d0f153dceab395c334fc6190067b60" }
 
 [dependencies.rayon]
 version = "1.11"
@@ -38,7 +35,7 @@ rayon = ["dep:rayon"]
 
 # Enable with: --features serde
 # Serialization support
-serde = ["dep:serde", "dep:once_cell", "slotmap/serde"]
+serde = ["dep:serde", "slotmap/serde"]
 default = []
 
 # makes the world Debug fmt printable, but all contained entities must be also
