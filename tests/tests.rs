@@ -295,6 +295,14 @@ mod tests {
         assert_eq!(de_bin.enemy.len(), 1);
         assert_eq!(de_bin.player.values().next().unwrap().id, 7);
         assert_eq!(de_bin.enemy.values().next().unwrap().hp, 42);
+
+        // RON round-trip
+        let serialized = ron::to_string(&world).unwrap();
+        let de_ron: MyWorld = ron::from_str(&serialized).unwrap();
+        assert_eq!(de_ron.player.len(), 1);
+        assert_eq!(de_ron.enemy.len(), 1);
+        assert_eq!(de_ron.player.values().next().unwrap().id, 7);
+        assert_eq!(de_ron.enemy.values().next().unwrap().hp, 42);
     }
 
     #[test]

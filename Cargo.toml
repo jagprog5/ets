@@ -1,6 +1,6 @@
 [package]
 name = "entity-trait-system"
-version = "1.0.2"
+version = "1.1.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/jagprog5/ets"
@@ -26,6 +26,7 @@ optional = true
 [dev-dependencies]
 bincode = { version = "2.0", features = ["serde"] }
 serde_json = "1.0"
+ron = "0.6"
 
 [features]
 

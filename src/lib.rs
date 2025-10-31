@@ -1377,6 +1377,10 @@ impl<'de> $crate::serde::Deserialize<'de> for $struct_name {
         use $crate::serde::de::{MapAccess, SeqAccess, Visitor, Error};
         use std::fmt;
 
+        #[derive($crate::serde::Deserialize)]
+        #[serde(field_identifier)]
+        enum Field { $($entity),* }
+
         struct WorldVisitor;
 
         impl<'de> Visitor<'de> for WorldVisitor {
@@ -1386,52 +1390,40 @@ impl<'de> $crate::serde::Deserialize<'de> for $struct_name {
                 write!(f, "struct {}", stringify!($struct_name))
             }
 
-            // JSON-style: map fields
             fn visit_map<V>(self, mut map: V) -> Result<$struct_name, V::Error>
             where
                 V: MapAccess<'de>,
             {
                 let mut world = $struct_name::default();
 
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
+                while let Some(key) = map.next_key::<Field>()? {
+                    match key {
                         $(
-                            stringify!($entity) => {
+                            Field::$entity => {
                                 world.[<$entity:snake>] =
-                                    <$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, $entity> as $crate::SerdeArena<'de>>::deserialize_arena(&mut map)?;
+                                    <$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, $entity>
+                                        as $crate::SerdeArena<'de>>::deserialize_arena(&mut map)?;
                             }
                         )*
-                        other => {
-                            return Err(V::Error::custom(format!(
-                                "Unknown field '{}' for {}",
-                                other,
-                                stringify!($struct_name)
-                            )));
-                        }
                     }
                 }
 
                 Ok(world)
             }
 
-            // Bincode-style: sequence fields.
-            // WARNING! Requires stated entities not changing order
             fn visit_seq<V>(self, mut seq: V) -> Result<$struct_name, V::Error>
             where
                 V: SeqAccess<'de>,
             {
-               Ok($struct_name {
+                Ok($struct_name {
                     $(
-                        [<$entity:snake>]: <$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, $entity> as $crate::SerdeArena<'de>>::from_seq(&mut seq, stringify!($entity))?,
+                        [<$entity:snake>]: <$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, $entity>
+                            as $crate::SerdeArena<'de>>::from_seq(&mut seq, stringify!($entity))?,
                     )*
                 })
             }
         }
 
-        // Choose entry point depending on deserializer type
-        //
-        // JSON/CBOR: calls `deserialize_struct` -> `visit_map`
-        // Bincode: must call `deserialize_struct` directly (sequence)
         deserializer.deserialize_struct(
             stringify!($struct_name),
             &[<$struct_name:upper _DESERIALIZE_FIELDS>],
@@ -1439,6 +1431,7 @@ impl<'de> $crate::serde::Deserialize<'de> for $struct_name {
         )
     }
 }
+
         }
     };
 }
