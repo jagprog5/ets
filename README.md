@@ -1,16 +1,21 @@
-## Entity Trait System
+# entity-trait-system
 
 [![Crates.io](https://img.shields.io/crates/v/entity-trait-system.svg)](https://crates.io/crates/entity-trait-system)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Entity trait system (ETS) is an alternative to entity component system. Here is
-a [video](https://youtu.be/AezHJdwDfW0) summary.
+An alternative to [ECS](https://en.wikipedia.org/wiki/Entity_component_system).
+Here is a [video](https://youtu.be/AezHJdwDfW0) summary.
+
+## Setup
 
 Requires the nightly compiler and
 [specialization](https://std-dev-guide.rust-lang.org/policy/specialization.html)
 feature - it's only used in a sound way.
 
-## Example
+```bash
+rustup override set nightly # enable nightly compiler
+cargo add entity-trait-system # get lib
+```
 
 ```rs
 // explicitly opt in to language feature
@@ -42,30 +47,6 @@ let player = player_arena
 player.do_something_else();
 ```
 
-## Performance Notes
-
-This can be found in the implementation of `visit_*`:
-
-```rust
-fn v_if_applicable<F>(arena: &DenseSlotMap<DefaultKey, T>, mut handler: F)
-where F: FnMut(&dyn $trait_name)
-{
-    arena
-        .values_as_slice()
-        .iter()
-        .for_each(|entity| {
-            // T is implicitly type erased to &dyn $trait_name
-            handler(entity)
-        }); 
-}
-```
-
-The handler is typically inlined and devirtualized to erase dynamic dispatch,
-since the type is known at compile time and is type erased just before use.
-
-This means that the static dispatch is reliant on compiler optimization. This
-likely happens but is not guaranteed.
-
 ## API Overview
 
 ### Per-Trait Methods (generated for each trait)
@@ -75,12 +56,12 @@ likely happens but is not guaranteed.
 - `visit_key_mut_<trait>` - Mutable iteration with `(Key, &mut Value)` tuples
 - `retain_<trait>` - Keep entities matching predicate
 - `retain_with_default_<trait>` - Keep with control over non-implementing types
-- `diff_<trait>` - Gather diff vector from immutable view, to apply later.
-- `diff_mut_<trait>` - Same as previous, but from mutable view.
+- `diff_<trait>` - Gather diff vector from immutable view, to apply later
+- `diff_mut_<trait>` - Same as previous, but from mutable view
 - `diff_apply_<trait>` - Apply diff vector
 - `clear_<trait>` - Clear all arenas implementing trait
 - `len_<trait>` - Count entities implementing trait
-- `any_arenas_<trait>` - Get fixed-size array of type-erased arenas implementing trait
+- `any_arenas_<trait>` - Get array of type-erased arenas implementing trait
 - `any_arenas_mut_<trait>` - Mutable version of above
 
 ### World Methods
@@ -91,7 +72,27 @@ likely happens but is not guaranteed.
 - `len()` - Total entity count across all arenas
 
 ## Rayon Support
-Parallel via `par_*` variants.
+Parallel operations exposed via `par_*` variants.
 
 ## Serde Support
-Both map (serde_json) and seq (bincode) style serialization.
+Both map (serde_json) and seq (bincode) style ser/deserialization.
+
+## Performance Note
+
+This can be found in the implementation of `visit_*`:
+
+```rust
+fn v_if_applicable<F>(arena: &DenseSlotMap<DefaultKey, T>, mut handler: F)
+where F: FnMut(&dyn $trait_name) {
+    arena.values_as_slice().iter()
+        .for_each(|entity| {
+            handler(entity) // implicit type erase T -> &dyn $trait_name
+        });
+}
+```
+
+The handler is typically inlined and devirtualized to erase dynamic dispatch,
+since the type is known at compile time and is type erased just before use.
+This means that static dispatch is reliant on compiler optimization; likely but not guaranteed.
+
+License: MIT
