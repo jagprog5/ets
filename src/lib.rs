@@ -271,31 +271,39 @@ trait [<$struct_name ParVisitIf $trait_name>]<T> {
 }
 
 impl<T> [<$struct_name ParVisitIf $trait_name>]<T> for () {
+    #[inline(always)]
     default fn pv_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(&dyn $trait_name) + Send + Sync {}
 
+    #[inline(always)]
     default fn pvm_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(&mut dyn $trait_name) + Send + Sync {}
 
+    #[inline(always)]
     default fn pvk_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) + Send + Sync {}
 
+    #[inline(always)]
     default fn pvkm_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F)
     where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) + Send + Sync {}
 
+    #[inline(always)]
     default fn pr_if_applicable<P>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _predicate: &P)
     where P: Fn(&mut dyn $trait_name) -> bool + Send + Sync {}
 
+    #[inline(always)]
     default fn pd_if_applicable<D, F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F, _out: &mut [std::mem::MaybeUninit<D>])
     where
         D: Send,
         F: Fn(&dyn $trait_name) -> D + Send + Sync {}
 
+    #[inline(always)]
     default fn pdm_if_applicable<D, F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F, _out: &mut [std::mem::MaybeUninit<D>])
     where
         D: Send,
         F: Fn(&mut dyn $trait_name) -> D + Send + Sync {}
 
+    #[inline(always)]
     default fn pda_if_applicable<D, F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: &F, _i: &[D])
     where
         D: Sync,
@@ -308,6 +316,7 @@ impl<T> [<$struct_name ParVisitIf $trait_name>]<T> for ()
 where
     T: $trait_name + Send + Sync,
 {
+    #[inline(always)]
     fn pv_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(&dyn $trait_name) + Send + Sync
     {
@@ -319,6 +328,7 @@ where
             .for_each(|entity| handler(entity));
     }
 
+    #[inline(always)]
     fn pvm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(&mut dyn $trait_name) + Send + Sync
     {
@@ -330,6 +340,7 @@ where
             .for_each(|entity| handler(entity));
     }
 
+    #[inline(always)]
     fn pvk_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) + Send + Sync
     {
@@ -343,6 +354,7 @@ where
             .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
     }
 
+    #[inline(always)]
     fn pvkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F)
     where F: Fn(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) + Send + Sync
     {
@@ -356,6 +368,7 @@ where
             .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
     }
 
+    #[inline(always)]
     fn pr_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, predicate: &P)
     where P: Fn(&mut dyn $trait_name) -> bool + Send + Sync
     {
@@ -367,6 +380,7 @@ where
         arena.retain(|_, entity| predicate(entity));
     }
 
+    #[inline(always)]
     fn pd_if_applicable<D, F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, out: &mut [std::mem::MaybeUninit<D>])
     where
         D: Send,
@@ -385,6 +399,7 @@ where
             });
     }
 
+    #[inline(always)]
     fn pdm_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, out: &mut [std::mem::MaybeUninit<D>])
     where
         D: Send,
@@ -402,6 +417,7 @@ where
             });
     }
 
+    #[inline(always)]
     fn pda_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, handler: &F, i: &[D])
     where
         D: Sync,
@@ -1397,29 +1413,37 @@ $(
 
     // no-op for types not implementing the trait
     impl<T> [<$struct_name VisitIf $trait_name>]<T> for () {
+        #[inline(always)]
         default fn v_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(&dyn $trait_name) {}
 
+        #[inline(always)]
         default fn mv_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(&mut dyn $trait_name) {}
 
+        #[inline(always)]
         default fn vk_if_applicable<F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name) {}
 
+        #[inline(always)]
         default fn vkm_if_applicable<F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F)
         where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name) {}
 
+        #[inline(always)]
         default fn r_if_applicable<P>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _predicate: P)
         where P: FnMut(&mut dyn $trait_name) -> bool {}
 
+        #[inline(always)]
         default fn d_if_applicable<D, F>(_arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F, _out: &mut [std::mem::MaybeUninit<D>])
         where
             F: FnMut(&dyn $trait_name) -> D {}
 
+        #[inline(always)]
         default fn dm_if_applicable<D, F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F, _out: &mut [std::mem::MaybeUninit<D>])
         where
             F: FnMut(&mut dyn $trait_name) -> D {}
 
+        #[inline(always)]
         default fn da_if_applicable<D, F>(_arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, _handler: F, _i: &[D])
         where
             F: FnMut(&mut dyn $trait_name, &D) {}
@@ -1432,6 +1456,7 @@ $(
     }
 
     impl<T: $trait_name> [<$struct_name VisitIf $trait_name>]<T> for () {
+        #[inline(always)]
         fn v_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(&dyn $trait_name)
         {
@@ -1441,6 +1466,7 @@ $(
                 .for_each(|entity| handler(entity));
         }
 
+        #[inline(always)]
         fn mv_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(&mut dyn $trait_name)
         {
@@ -1450,12 +1476,14 @@ $(
                 .for_each(|entity| handler(entity));
         }
 
+        #[inline(always)]
         fn r_if_applicable<P>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut predicate: P)
         where P: FnMut(&mut dyn $trait_name) -> bool
         {
             arena.retain(|_, entity| predicate(entity));
         }
 
+        #[inline(always)]
         fn d_if_applicable<D, F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F, out: &mut [std::mem::MaybeUninit<D>])
         where
             F: FnMut(&dyn $trait_name) -> D {
@@ -1464,6 +1492,7 @@ $(
                 }
             }
 
+        #[inline(always)]
         fn dm_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F, out: &mut [std::mem::MaybeUninit<D>])
         where
             F: FnMut(&mut dyn $trait_name) -> D {
@@ -1472,6 +1501,7 @@ $(
                 }
             }
         
+        #[inline(always)]
         fn da_if_applicable<D, F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F, i: &[D])
         where
             F: FnMut(&mut dyn $trait_name, &D) {
@@ -1480,6 +1510,7 @@ $(
                 }
             }
 
+        #[inline(always)]
         fn vk_if_applicable<F>(arena: &$crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &dyn $trait_name)
         {
@@ -1490,6 +1521,7 @@ $(
                 .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
         }
 
+        #[inline(always)]
         fn vkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name)
         {

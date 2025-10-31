@@ -26,7 +26,7 @@ let player_id = world.player.insert(Player { id: 1 });
 // compile time type accessor of arena member (similar)
 world.arena_mut::<Enemy>().insert(Enemy { hp: 10 });
 
-// visit all arenas with types that implement trait - bound at compile time
+// visit all arenas with types that implement trait
 #[cfg(feature = "rayon")]
 world.par_visit_test_trait(|e| e.do_something());
 #[cfg(not(feature = "rayon"))]
@@ -68,10 +68,30 @@ player.do_something_else();
 
 ## Performance Notes
 
-- **Zero-cost abstractions**: Trait checks are compile-time via specialization
-- **Cache-friendly**: Uses `slotmap::DenseSlotMap` for contiguous storage per type
-- **Parallel safety**: `par_*` methods leverage rayon for multi-threaded iteration
-- **No virtual dispatch overhead** unless explicitly using type-erased api
+This can be found in the implementation of `visit_*`:
+
+```rust
+#[inline(always)]
+fn v_if_applicable<F>(arena: &DenseSlotMap<DefaultKey, T>, mut handler: F)
+where F: FnMut(&dyn $trait_name)
+{
+    arena
+        .values_as_slice()
+        .iter()
+        .for_each(|entity| {
+            // T is implicitly type erased to &dyn $trait_name
+            handler(entity)
+        }); 
+}
+```
+
+The handler is passed to the visitor, causing
+[monomorphization](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html).
+The handler is typically inlined and devirtualized to erase dynamic dispatch,
+since the type is known at compile time and is type erased just before use.
+
+This means that the static dispatch of the handler is reliant on compiler
+optimization. This likely happens but is not guaranteed.
 
 ## Rayon Support
 Parallel via `par_*` variants.
