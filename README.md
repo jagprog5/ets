@@ -112,8 +112,7 @@ explicitly.
 
 #### Heavy Compute
 
-ETS median performance was the best, but there was a higher variance with other
-libraries which sometimes is better.
+ETS overlapped with the other libraries - not much of a difference.
 
 #### Add/Remove Component
 
