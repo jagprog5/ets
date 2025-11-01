@@ -81,6 +81,52 @@ Both map (serde_json) and seq (bincode) style ser/deserialization.
 
 ## Performance Note
 
+### Benchmarks
+
+Here's a [benchmark test suite](https://github.com/jagprog5/ecs_bench_suite)
+comparing ETS to other popular libraries.
+
+#### Simple Insert
+
+ETS performed the best. It's the same speed as the underlying dense slot map
+insertion.
+
+#### Simple Iter
+
+The results for this benchmark form two distinct groups. The fastest group,
+including hecs and legion, arrange the components of the data as a structure of
+arrays. The second group (including ETS) iterate through an array of structures.
+A structure of arrays performs better since only the relevant data is loaded
+into the cache.
+
+Since ETS doesn't use components, it is inside the second group.
+
+#### Fragmented Iter
+
+ETS arrived in second place, just behind shipyard.
+
+#### System Scheduling
+
+ETS performed the best. But, disjoint systems (outer parallelism) must be stated
+explicitly.
+
+#### Heavy Compute
+
+ETS median performance was the best, but there was a higher variance with other
+libraries which sometimes is better.
+
+#### Add/Remove Component
+
+ETS is omitted from this benchmark since it doesn't use components; it's not
+applicable. For sparse components, an auxiliary structure can store entity keys.
+For dense components, a trait in the ETS can implement the desire behaviour.
+
+#### Serialize
+
+Only three libraries implemented serialization. ETS arrived in second.
+
+### Optimization
+
 This can be found in the implementation of `visit_*`:
 
 ```rust
@@ -97,7 +143,8 @@ fn v_if_applicable<F>(
 ```
 
 The handler is typically inlined and devirtualized to erase dynamic dispatch,
-since the type is known at compile time and is type erased just before use.
-This means that static dispatch is reliant on compiler optimization; likely but not guaranteed.
+since the type is known at compile time and is type erased just before use. This
+means that static dispatch is reliant on compiler optimization; likely but not
+guaranteed.
 
 License: MIT

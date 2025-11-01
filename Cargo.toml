@@ -1,6 +1,6 @@
 [package]
 name = "entity-trait-system"
-version = "1.1.2"
+version = "1.1.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/jagprog5/ets"
@@ -12,7 +12,7 @@ paste = "1.0.15"
 # slot map has been pretty stable for a while (2 years). this adds one small
 # commit - direct slice access to keys or values. handy for parallel iteration
 # over contiguous data. https://github.com/orlp/slotmap/pull/134
-slotmap = { git = "https://github.com/Swiiz/slotmap.git", version = "1.0.7", rev = "aa2b036010ea8038edf191b421c82a7fcc2d3eab" }
+slotmap = { package = "slotmap-slice-fork", version = "1.0.7" }
 
 [dependencies.rayon]
 version = "1.11"
