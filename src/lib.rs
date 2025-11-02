@@ -1676,7 +1676,7 @@ impl $struct_name {
     $crate::__world_define_visitors!(@pass_entity_tuple $struct_name $($trait_name),* @ ($($entity),*));
 
     /// access underlying arena for type T
-    /// ```
+    /// ```ignore
     /// world.arena::<Enemy>().len()
     /// ```
     #[allow(unused)]
@@ -1691,7 +1691,7 @@ impl $struct_name {
     }
 
     /// mutably access underlying arena for type T
-    /// ```
+    /// ```ignore
     /// world.arena::<Enemy>().len()
     /// ```
     #[allow(unused)]
@@ -1708,7 +1708,7 @@ impl $struct_name {
     /// get the ArenaID for type T
     ///
     /// this is used as part of the type erased api
-    /// ```
+    /// ```ignore
     /// let arena_id = MyWorld::arena_id::<Enemy>();
     /// let arena = world.any_arena(arena_id);
     /// ```
