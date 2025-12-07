@@ -72,58 +72,15 @@ player.do_something_else();
 - `clear()` - Clear all arenas
 - `len()` - Total entity count across all arenas
 
-# Rayon Support
+## Rayon Support
 Parallel operations exposed via `par_*` variants.
 
-# Serde Support
+## Serde Support
 Both map (serde_json) and seq (bincode) style ser/deserialization.
 
-# Performance Note
+# Performance
 
-## Benchmarks
-
-Here's a [benchmark test suite](https://github.com/jagprog5/ecs_bench_suite)
-comparing ETS to other popular libraries.
-
-### Simple Insert
-
-ETS performed the best. It's the same speed as the underlying dense slot map
-insertion.
-
-### Simple Iter
-
-The results for this benchmark form two distinct groups. The fastest group,
-including hecs and legion, arrange the components of the data as a structure of
-arrays. The second group (including ETS) iterate through an array of structures.
-A structure of arrays performs better since only the relevant data is loaded
-into the cache.
-
-Since ETS doesn't use components, it is inside the second group.
-
-### Fragmented Iter
-
-ETS arrived in second place, just behind shipyard.
-
-### System Scheduling
-
-ETS performed the best. But, disjoint systems (outer parallelism) must be stated
-explicitly.
-
-### Heavy Compute
-
-ETS overlapped with the other libraries - not much of a difference.
-
-### Add/Remove Component
-
-ETS is omitted from this benchmark since it doesn't use components; it's not
-applicable. For sparse components, an auxiliary structure can store entity keys.
-For dense components, a trait in the ETS can implement the desire behaviour.
-
-### Serialize
-
-Only three libraries implemented serialization. ETS arrived in second.
-
-## Optimization
+## Static Dispatch
 
 This can be found in the implementation of `visit_*`:
 
@@ -142,8 +99,13 @@ fn v_if_applicable<F>(
 
 The handler is typically inlined and devirtualized to erase dynamic dispatch,
 since the type is known at compile time and is type erased just before use. This
-means that static dispatch is reliant on compiler optimization; likely but not
-guaranteed.
+means that static dispatch is reliant on compiler optimization; very likely but
+not guaranteed.
+
+## Benchmarks
+
+Here's a [benchmark test suite](https://github.com/jagprog5/ecs_bench_suite)
+comparing ETS to other popular libraries.
 */
 
 // specialization feature is incomplete, but is being used here in a very
@@ -500,7 +462,7 @@ where
         use $crate::rayon::iter::IntoParallelRefMutIterator;
         use $crate::rayon::iter::IndexedParallelIterator;
         use $crate::rayon::iter::ParallelIterator;
-        let (keys, values) = arena.keys_values_as_mut_slices();
+        let (keys, values) = arena.as_mut_slices();
         keys.par_iter()
             .zip(values.par_iter_mut())
             .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
@@ -1653,7 +1615,7 @@ $(
         fn vkm_if_applicable<F>(arena: &mut $crate::slotmap::DenseSlotMap<$crate::slotmap::DefaultKey, T>, mut handler: F)
         where F: FnMut(([<$struct_name ArenaID>], $crate::slotmap::DefaultKey), &mut dyn $trait_name)
         {
-            let (keys, values) = arena.keys_values_as_mut_slices();
+            let (keys, values) = arena.as_mut_slices();
             keys.iter()
                 .zip(values.iter_mut())
                 .for_each(|(k, v)| handler(($struct_name::arena_id::<T>(), *k), v));
